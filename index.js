@@ -1540,6 +1540,7 @@ return interaction.update({
   content: result.message,
   components: []
 })
+  }
 
 //  let users = await getUsers()
   if (interaction.isChatInputCommand() && interaction.commandName === "duo_list") {
