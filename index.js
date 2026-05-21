@@ -621,7 +621,20 @@ async function getRivalDuoByUser(discordId) {
     return null
   }
 }
+async function getAllRivalDuosByUser(discordId) {
+  const duos = await loadAllRivalDuos()
+  const found = []
 
+  for (const duo of Object.values(duos)) {
+    if (!duo) continue
+
+    if (duo.members && duo.members[String(discordId)]) {
+      found.push(duo)
+    }
+  }
+
+  return found
+}
 async function saveRivalDuoIndexes(duo) {
   try {
     for (const member of getRivalDuoMembers(duo)) {
@@ -848,48 +861,67 @@ async function activateRivalDuoId(duo, force = false) {
 }
 
 async function setRivalDuoOnline(discordId) {
-  const duo = await getRivalDuoByUser(discordId)
+  const duos = await getAllRivalDuosByUser(discordId)
 
-  if (!duo) {
+  if (!duos.length) {
     return {
       ok: false,
-      message: "❌ You are not registered in a Rival Duo."
+      message: "❌ You are not registered in any Rival Duo."
     }
   }
 
-  if (!duo.onlineUsers) duo.onlineUsers = {}
+  const messages = []
 
-  duo.onlineUsers[String(discordId)] = true
+  for (const duo of duos) {
+    if (!duo.onlineUsers) duo.onlineUsers = {}
 
-  await saveRivalDuo(duo)
+    duo.onlineUsers[String(discordId)] = true
 
-  return await activateRivalDuoId(duo, false)
-}
+    await saveRivalDuo(duo)
 
-async function setRivalDuoOffline(discordId, reason = "offline") {
-  const duo = await getRivalDuoByUser(discordId)
+    const result = await activateRivalDuoId(duo, false)
 
-  if (!duo) {
-    return {
-      ok: false,
-      message: "❌ You are not registered in a Rival Duo."
-    }
+    messages.push(
+      `🤝 **${displayRivalDuoName(duo)}**\n${result.message}`
+    )
   }
-
-  await removeRivalDuoIdsFromElite(duo)
-
-  duo.onlineUsers = {}
-  duo.activeGameId = null
-  duo.activeDiscordId = null
-  duo.status = "offline"
-  duo.offlineReason = reason
-  duo.offlineAt = rivalNow()
-
-  await saveRivalDuo(duo)
 
   return {
     ok: true,
-    message: `🔴 Rival Duo offline: **${displayRivalDuoName(duo)}**.`
+    message: messages.join("\n\n")
+  }
+}
+
+async function setRivalDuoOffline(discordId, reason = "offline") {
+  const duos = await getAllRivalDuosByUser(discordId)
+
+  if (!duos.length) {
+    return {
+      ok: false,
+      message: "❌ You are not registered in any Rival Duo."
+    }
+  }
+
+  const messages = []
+
+  for (const duo of duos) {
+    await removeRivalDuoIdsFromElite(duo)
+
+    duo.onlineUsers = {}
+    duo.activeGameId = null
+    duo.activeDiscordId = null
+    duo.status = "offline"
+    duo.offlineReason = reason
+    duo.offlineAt = rivalNow()
+
+    await saveRivalDuo(duo)
+
+    messages.push(`🔴 Rival Duo offline: **${displayRivalDuoName(duo)}**.`)
+  }
+
+  return {
+    ok: true,
+    message: messages.join("\n")
   }
 }
 
