@@ -1441,14 +1441,20 @@ client.on("interactionCreate", async (interaction) => {
 
   const openDuos = await findOpenRivalDuos()
 
-  if (!openDuos.length) {
-    const result = await registerRivalDuoMember(pending)
+if (!openDuos.length) {
+  const result = await registerRivalDuoMember(pending)
 
-    return interaction.reply({
-      content: result.message,
-      flags: MessageFlags.Ephemeral
+  if (result.ok) {
+    await redis.hset(activeRolesKey(), {
+      [interaction.user.id]: "Rival_Duo"
     })
   }
+
+  return interaction.reply({
+    content: result.message,
+    flags: MessageFlags.Ephemeral
+  })
+}
 
   const menu = new StringSelectMenuBuilder()
     .setCustomId(`rival_duo_select_${interaction.user.id}`)
@@ -1492,18 +1498,24 @@ client.on("interactionCreate", async (interaction) => {
 
   const selected = interaction.values[0]
 
-  const result = await registerRivalDuoMember({
-    ...pending,
-    duoId: selected === "create_new" ? null : selected
-  })
+ const result = await registerRivalDuoMember({
+  ...pending,
+  duoId: selected === "create_new" ? null : selected
+})
 
-  await clearPendingRivalDuoRegistration(interaction.user.id)
-
-  return interaction.update({
-    content: result.message,
-    components: []
+if (result.ok) {
+  await redis.hset(activeRolesKey(), {
+    [interaction.user.id]: "Rival_Duo"
   })
 }
+
+await clearPendingRivalDuoRegistration(interaction.user.id)
+
+return interaction.update({
+  content: result.message,
+  components: []
+})
+
 //  let users = await getUsers()
   if (interaction.isChatInputCommand() && interaction.commandName === "duo_list") {
   const hasRole =
