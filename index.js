@@ -861,23 +861,25 @@ async function activateRivalDuoId(duo, force = false) {
 }
 
 async function setRivalDuoOnline(discordId) {
-  const duos = await getAllRivalDuosByUser(discordId)
+  discordId = String(discordId)
 
-  if (!duos.length) {
-    return {
-      ok: false,
-      message: "❌ You are not registered in any Rival Duo."
-    }
-  }
-
+  const allDuos = await loadAllRivalDuos()
   const messages = []
+  let found = false
 
-  for (const duo of duos) {
+  for (const duoId in allDuos) {
+    const duo = allDuos[duoId]
+    if (!duo || !duo.members) continue
+
+    if (!duo.members[discordId]) continue
+
+    found = true
+
     if (!duo.onlineUsers || typeof duo.onlineUsers !== "object") {
       duo.onlineUsers = {}
     }
 
-    duo.onlineUsers[String(discordId)] = true
+    duo.onlineUsers[discordId] = true
 
     await saveRivalDuo(duo)
 
@@ -888,6 +890,13 @@ async function setRivalDuoOnline(discordId) {
     )
   }
 
+  if (!found) {
+    return {
+      ok: false,
+      message: "❌ You are not registered in any Rival Duo."
+    }
+  }
+
   return {
     ok: true,
     message: messages.join("\n\n")
@@ -895,18 +904,20 @@ async function setRivalDuoOnline(discordId) {
 }
 
 async function setRivalDuoOffline(discordId, reason = "offline") {
-  const duos = await getAllRivalDuosByUser(discordId)
+  discordId = String(discordId)
 
-  if (!duos.length) {
-    return {
-      ok: false,
-      message: "❌ You are not registered in any Rival Duo."
-    }
-  }
-
+  const allDuos = await loadAllRivalDuos()
   const messages = []
+  let found = false
 
-  for (const duo of duos) {
+  for (const duoId in allDuos) {
+    const duo = allDuos[duoId]
+    if (!duo || !duo.members) continue
+
+    if (!duo.members[discordId]) continue
+
+    found = true
+
     await removeRivalDuoIdsFromElite(duo)
 
     duo.onlineUsers = {}
@@ -919,6 +930,13 @@ async function setRivalDuoOffline(discordId, reason = "offline") {
     await saveRivalDuo(duo)
 
     messages.push(`🔴 Rival Duo offline: **${displayRivalDuoName(duo)}**.`)
+  }
+
+  if (!found) {
+    return {
+      ok: false,
+      message: "❌ You are not registered in any Rival Duo."
+    }
   }
 
   return {
