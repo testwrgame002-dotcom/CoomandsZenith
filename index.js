@@ -2277,7 +2277,7 @@ for (const duo of Object.values(rivalDuos)) {
     const gameId = String(member.gameId || "").trim()
 
     if (!gameId) continue
-    if (!ids.includes(gameId)) continue
+    if (!onlineIds.includes(gameId)) continue
 
     msg += `🤝 ${member.name || "Unknown"} | 📡 ${member.heartbeatName || member.name || "Unknown"} → Rival Duo: ${gameId}\n`
 
