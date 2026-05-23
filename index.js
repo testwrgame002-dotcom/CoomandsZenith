@@ -91,19 +91,35 @@ function uniqueList(arr) {
 }
 
 function buildUserData(oldData, interaction, updates = {}) {
+
   const discordName =
     interaction.member?.displayName ||
     interaction.user?.username ||
     "Unknown"
 
-  const oldAliases = Array.isArray(oldData.aliases) ? oldData.aliases : []
+  const oldAliases = Array.isArray(oldData.aliases)
+    ? oldData.aliases
+    : []
 
-  const name = oldData.name || discordName
+  const finalMainId =
+    updates.main_id !== undefined
+      ? updates.main_id
+      : oldData.main_id || null
 
-  const heartbeatName =
-    oldData.heartbeatName ||
+  const finalSecId =
+    updates.sec_id !== undefined
+      ? updates.sec_id
+      : oldData.sec_id || null
+
+  const name =
+    updates.name ||
     oldData.name ||
     discordName
+
+  const heartbeatName =
+    updates.heartbeatName ||
+    oldData.heartbeatName ||
+    name
 
   const aliases = uniqueList([
     ...oldAliases,
@@ -116,9 +132,14 @@ function buildUserData(oldData, interaction, updates = {}) {
 
   return {
     ...oldData,
+
     name,
     heartbeatName,
     aliases,
+
+    main_id: finalMainId,
+    sec_id: finalSecId,
+
     ...updates
   }
 }
@@ -131,10 +152,9 @@ function normalizeRedisIds(ids) {
   if (!Array.isArray(ids)) return []
 
   return ids
-    .map(id => String(id).trim())
+    .map(id => String(id).replace(/\D/g, ""))
     .filter(id => /^\d{16}$/.test(id))
 }
-
 function normalizeGroupRoleName(roleName) {
   const map = {
     "Trainer": "Trainer",
@@ -238,7 +258,7 @@ function chunkArray(arr, size) {
 }
 
 function buildUserLabel(user, id) {
-  if (!user) return `Unknown`;
+ if (!user) return `Unknown (${id})`;
   if (user.main_id === id) return `${user.name} (Main)`;
   if (user.sec_id === id) return `${user.name} (Sec)`;
   return `${user.name}`;
