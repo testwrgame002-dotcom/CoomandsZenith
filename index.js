@@ -486,7 +486,33 @@ async function saveActiveRoles(data) {
   }
 }
 
-saveUsers
+async function saveUsers(users, group) {
+  try {
+    if (!GROUP_CONFIG[group]) {
+      console.error("saveUsers invalid group:", group)
+      return false
+    }
+
+    const key = usersKey(group)
+
+    await redis.del(key)
+
+    const payload = {}
+
+    for (const uid in users) {
+      payload[uid] = JSON.stringify(users[uid])
+    }
+
+    if (Object.keys(payload).length > 0) {
+      await redis.hset(key, payload)
+    }
+
+    return true
+  } catch (err) {
+    console.error(`Error saving users to Redis for ${group}:`, err)
+    return false
+  }
+}
 
 //advio
 async function addVipID(id, group) {
