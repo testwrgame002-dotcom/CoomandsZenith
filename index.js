@@ -486,29 +486,7 @@ async function saveActiveRoles(data) {
   }
 }
 
-async function saveUsers(users, group) {
-  try {
-    if (!GROUP_CONFIG[group]) {
-      console.error("saveUsers invalid group:", group)
-      return false
-    }
-
-    const key = usersKey(group)
-
-    for (const uid in users) {
-await redis.hset(
-  key,
-  uid,
-  JSON.stringify(users[uid])
-)
-    }
-
-    return true
-  } catch (err) {
-    console.error(`Error saving users to Redis for ${group}:`, err)
-    return false
-  }
-}
+saveUsers
 
 //advio
 async function addVipID(id, group) {
@@ -617,9 +595,11 @@ async function saveRivalDuo(duo) {
   try {
     if (!duo?.id) return false
 
-    await redis.hset(RIVAL_DUOS_KEY, {
-      [duo.id]: JSON.stringify(duo)
-    })
+await redis.hset(
+  RIVAL_DUOS_KEY,
+  duo.id,
+  JSON.stringify(duo)
+)
 
     return true
   } catch (err) {
