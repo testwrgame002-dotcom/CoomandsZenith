@@ -1855,7 +1855,7 @@ if (await isActiveRivalDuo(interaction)) {
   return interaction.editReply(result.message)
 }
 
-cconst found = await findUserEverywhere(interaction.user.id)
+const found = await findUserEverywhere(interaction.user.id)
 
 if (!found) {
   return interaction.editReply("❌ You must register first")
