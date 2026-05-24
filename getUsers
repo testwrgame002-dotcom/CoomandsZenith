@@ -440,6 +440,23 @@ async function getUsers(group) {
     return {}
   }
 }
+
+async function findUserEverywhere(discordId) {
+
+  for (const group of Object.keys(GROUP_CONFIG)) {
+
+    const users = await getUsers(group)
+
+    if (users[discordId]) {
+      return {
+        group,
+        user: users[discordId]
+      }
+    }
+  }
+
+  return null
+}
 async function getActiveRoles() {
   try {
     const data = await redis.hgetall(activeRolesKey())
@@ -478,16 +495,10 @@ async function saveUsers(users, group) {
 
     const key = usersKey(group)
 
-    await redis.del(key)
-
-    const payload = {}
-
     for (const uid in users) {
-      payload[uid] = JSON.stringify(users[uid])
-    }
-
-    if (Object.keys(payload).length > 0) {
-      await redis.hset(key, payload)
+      await redis.hset(key, {
+        [uid]: JSON.stringify(users[uid])
+      })
     }
 
     return true
@@ -1424,23 +1435,7 @@ const TOTAL_CHANNEL_ID = "1484416376436424794"
 //const HISTORY_FILE = "./ppm_history.json";
 //const TWELVE_HOURS = 12 * 60 * 60 * 1000;
 
-async function loadHistory() {
-  try {
-    const data = await redis.get(historyKey())
-    return safeJsonParse(data, [])
-  } catch (err) {
-    console.error("Error loading history from Redis:", err)
-    return []
-  }
-}
 
-async function saveHistory(data) {
-  try {
-    await redis.set(historyKey(), JSON.stringify(data || []))
-  } catch (err) {
-    console.error("Error saving history to Redis:", err)
-  }
-}
 
 
 
@@ -1860,18 +1855,17 @@ if (await isActiveRivalDuo(interaction)) {
   return interaction.editReply(result.message)
 }
 
-const group = await getUserGroup(interaction)
-    if (!group) {
-      return interaction.editReply("❌ You don't belong to any reroll group")
-    }
+cconst found = await findUserEverywhere(interaction.user.id)
 
-    const config = GROUP_CONFIG[group]
+if (!found) {
+  return interaction.editReply("❌ You must register first")
+}
 
+const group = found.group
 
-    // 🔥 Cargar correctamente el archivo del grupo
-    let users = await getUsers(group)
+let users = await getUsers(group)
 
-    const userData = users[interaction.user.id]
+const userData = found.user
 
     if (!userData) {
       return interaction.editReply("❌ You must register first")
@@ -1921,17 +1915,14 @@ if (await isActiveRivalDuo(interaction)) {
   return interaction.editReply(result.message)
 }
 
-const group = await getUserGroup(interaction);
+const found = await findUserEverywhere(interaction.user.id)
 
-if (!group) {
-  return interaction.reply("❌ No group");
+if (!found) {
+  return interaction.reply("❌ You must register first")
 }
 
-  const config = GROUP_CONFIG[group]
-
-  let users = await getUsers(group)
-
-  const userData = users[interaction.user.id]
+const group = found.group
+const userData = found.user
 
   // 🔥 CAMBIO IMPORTANTE
   if (!userData || !userData.main_id) {
@@ -2002,18 +1993,14 @@ return interaction.editReply("🟢 Secondary account set online. It now appears 
 }
 
   // 🔎 Detectar grupo por rol
-  const group = await getUserGroup(interaction)
+const found = await findUserEverywhere(interaction.user.id)
 
-  if (!group) {
-    return interaction.editReply("❌ You don't belong to any reroll group")
-  }
+if (!found) {
+  return interaction.editReply("❌ You are not registered in your group")
+}
 
-  const config = GROUP_CONFIG[group]
-
-  // 📂 Cargar users del grupo correcto
-let users = await getUsers(group)
-
-  const userData = users[interaction.user.id]
+const group = found.group
+const userData = found.user
 
   if (!userData) {
     return interaction.editReply("❌ You are not registered in your group")
