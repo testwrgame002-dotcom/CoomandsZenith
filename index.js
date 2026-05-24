@@ -496,9 +496,11 @@ async function saveUsers(users, group) {
     const key = usersKey(group)
 
     for (const uid in users) {
-      await redis.hset(key, {
-        [uid]: JSON.stringify(users[uid])
-      })
+await redis.hset(
+  key,
+  uid,
+  JSON.stringify(users[uid])
+)
     }
 
     return true
