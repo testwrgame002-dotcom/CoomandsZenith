@@ -866,9 +866,14 @@ async function activateRivalDuoId(duo, force = false) {
     }
   }
 
-  const bothOnline = members.every(member => {
-    return duo.onlineUsers?.[member.discordId] === true
-  })
+const eliteOnline = await getOnlineIDs("Elite_Four")
+
+const bothOnline = members.every(member => {
+  return (
+    duo.onlineUsers?.[member.discordId] === true &&
+    eliteOnline.includes(String(member.gameId))
+  )
+})
 
   if (!bothOnline) {
     await removeRivalDuoIdsFromElite(duo)
@@ -947,6 +952,8 @@ async function setRivalDuoOnline(discordId) {
 
     duo.onlineUsers[discordId] = true
 
+    await redis.sadd("online:Elite_Four", duo.members[discordId].gameId)
+
     await saveRivalDuo(duo)
 
     const result = await activateRivalDuoId(duo, false)
@@ -986,10 +993,21 @@ async function setRivalDuoOffline(discordId, reason = "offline") {
 
     await removeRivalDuoIdsFromElite(duo)
 
-    duo.onlineUsers = {}
-    duo.activeGameId = null
-    duo.activeDiscordId = null
-    duo.status = "offline"
+if (!duo.onlineUsers || typeof duo.onlineUsers !== "object") {
+  duo.onlineUsers = {}
+}
+
+duo.onlineUsers[discordId] = false
+
+const member = duo.members[discordId]
+
+if (member?.gameId) {
+  await redis.srem("online:Elite_Four", member.gameId)
+}
+    
+duo.activeGameId = null
+duo.activeDiscordId = null
+duo.status = "offline"
     duo.offlineReason = reason
     duo.offlineAt = rivalNow()
 
@@ -1124,9 +1142,14 @@ function getRivalDuoStatusLabel(duo) {
 
   if (members.length < 2) return "⏳ Waiting Partner"
 
-  const bothOnline = members.every(member => {
-    return duo.onlineUsers?.[member.discordId] === true
-  })
+const eliteOnline = await getOnlineIDs("Elite_Four")
+
+const bothOnline = members.every(member => {
+  return (
+    duo.onlineUsers?.[member.discordId] === true &&
+    eliteOnline.includes(String(member.gameId))
+  )
+})
 
   if (duo.status === "online" && bothOnline && duo.activeGameId) {
     return "🟢 Online"
@@ -2272,7 +2295,12 @@ for (const duo of Object.values(rivalDuos)) {
     if (!gameId) continue
     if (!onlineIds.includes(gameId)) continue
 
-    msg += `🤝 ${member.name || "Unknown"} | 📡 ${member.heartbeatName || member.name || "Unknown"} → Rival Duo: ${gameId}\n`
+    const displayName =
+  member.name ||
+  member.heartbeatName ||
+  `<@${member.discordId}>`
+
+msg += `🤝 ${displayName} | 📡 ${member.heartbeatName || displayName} → Rival Duo: ${gameId}\n`
 
     found = true
   }
