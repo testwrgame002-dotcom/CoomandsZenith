@@ -1155,7 +1155,6 @@ async function getRivalDuoStatusLabel(duo) {
 }
 
 async function buildRivalDuoListMessage() {
-  const status = await getRivalDuoStatusLabel(duo)
   const duos = await loadAllRivalDuos()
   const list = Object.values(duos).filter(Boolean)
 
@@ -1170,6 +1169,9 @@ async function buildRivalDuoListMessage() {
   let index = 1
 
   for (const duo of list) {
+
+    const status = await getRivalDuoStatusLabel(duo)
+
     const members = getRivalDuoMembers(duo)
 
     const activeMember = members.find(m => {
@@ -1234,18 +1236,28 @@ async function buildRivalDuoListMessage() {
 
 
 //Comandos
+let rivalRotationRunning = false
+
 client.once("clientReady", async () => {
   console.log(`✅ Bot listo como ${client.user.tag}`);
 
- startDailyScheduler();
+  startDailyScheduler();
 
   setInterval(async () => {
-  try {
-    await tickRivalDuoRotation()
-  } catch (err) {
-    console.error("Rival Duo rotation error:", err)
-  }
-}, 60 * 1000)
+
+    if (rivalRotationRunning) return
+
+    rivalRotationRunning = true
+
+    try {
+      await tickRivalDuoRotation()
+    } catch (err) {
+      console.error("Rival Duo rotation error:", err)
+    } finally {
+      rivalRotationRunning = false
+    }
+
+  }, 60 * 1000)
  // }, 10 * 1000)
   
  
@@ -1657,7 +1669,7 @@ const utcNow = now.toISOString().slice(11,16) // HH:MM en UTC real 24h
     last_offline: null
   }
 
-  saveSchedules(schedules)
+  await saveSchedules(schedules)
 
   return interaction.reply(
     `✅ Daily schedule activated\n\n` +
@@ -2231,7 +2243,9 @@ if (interaction.commandName === "list") {
  // 🔹 ONLINE LIST
 if (interaction.commandName === "online_list") {
   try {
-    await interaction.deferReply();
+    await interaction.deferReply({
+  flags: MessageFlags.Ephemeral
+});
 
     const group = await getUserGroup(interaction);
     if (!group)
