@@ -866,21 +866,27 @@ async function activateRivalDuoId(duo, force = false) {
     }
   }
 
-const bothOnline = members.length >= 2
+  if (!duo.onlineUsers || typeof duo.onlineUsers !== "object") {
+    duo.onlineUsers = {}
+  }
 
-  if (members.length < 2) {
+  const allOnline = members.every(member => {
+    return duo.onlineUsers[member.discordId] === true
+  })
+
+  if (!allOnline) {
     await removeRivalDuoIdsFromElite(duo)
 
     duo.activeGameId = null
     duo.activeDiscordId = null
-    duo.status = "waiting_partner"
+    duo.status = "offline"
 
     await saveRivalDuo(duo)
 
     return {
       ok: false,
-      waiting: true,
-      message: "⏳ Waiting for reroll partner."
+      waiting: false,
+      message: "🔴 Rival Duo offline."
     }
   }
 
@@ -889,10 +895,10 @@ const bothOnline = members.length >= 2
   const shouldRotate =
     force ||
     !duo.lastRotationAt ||
- //   now - Number(duo.lastRotationAt || 0) >= 60 * 60 * 1000
-  now - Number(duo.lastRotationAt || 0) >= RIVAL_DUO_ROTATION_MS
+    now - Number(duo.lastRotationAt || 0) >= RIVAL_DUO_ROTATION_MS
 
   if (!duo.activeGameId || shouldRotate) {
+
     const index = Number(duo.activeIndex || 0) % members.length
     const activeMember = members[index]
 
@@ -905,21 +911,34 @@ const bothOnline = members.length >= 2
     duo.status = "online"
 
     await redis.sadd("online:Elite_Four", activeMember.gameId)
+
     await saveRivalDuo(duo)
 
     return {
       ok: true,
       waiting: false,
-      message: `🟢 Rival Duo online in Elite Four.\nActive ID: **${activeMember.gameId}**\nActive user: <@${activeMember.discordId}>`
+      message:
+        `🟢 Rival Duo online in Elite Four.\n` +
+        `Active ID: **${activeMember.gameId}**\n` +
+        `Active user: <@${activeMember.discordId}>`
     }
   }
+
+  if (duo.activeGameId) {
+    await redis.sadd("online:Elite_Four", duo.activeGameId)
+  }
+
+  duo.status = "online"
 
   await saveRivalDuo(duo)
 
   return {
     ok: true,
     waiting: false,
-    message: `🟢 Rival Duo already online.\nActive ID: **${duo.activeGameId}**\nActive user: <@${duo.activeDiscordId}>`
+    message:
+      `🟢 Rival Duo already online.\n` +
+      `Active ID: **${duo.activeGameId}**\n` +
+      `Active user: <@${duo.activeDiscordId}>`
   }
 }
 
@@ -944,7 +963,15 @@ async function setRivalDuoOnline(discordId) {
 
     duo.onlineUsers[discordId] = true
 
+const members = getRivalDuoMembers(duo)
 
+const allOnline = members.every(member => {
+  return duo.onlineUsers?.[member.discordId] === true
+})
+
+if (allOnline) {
+  duo.status = "online"
+}
     await saveRivalDuo(duo)
 
     const result = await activateRivalDuoId(duo, false)
@@ -1001,7 +1028,7 @@ duo.activeDiscordId = null
 duo.status = "offline"
     duo.offlineReason = reason
     duo.offlineAt = rivalNow()
-
+    
     await saveRivalDuo(duo)
 
     messages.push(`🔴 Rival Duo offline: **${displayRivalDuoName(duo)}**.`)
