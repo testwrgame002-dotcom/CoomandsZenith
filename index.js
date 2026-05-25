@@ -921,7 +921,6 @@ const bothOnline = members.every(member => {
     }
   }
 
-  await redis.sadd("online:Elite_Four", duo.activeGameId)
   await saveRivalDuo(duo)
 
   return {
@@ -1140,30 +1139,23 @@ function formatRivalDuoTime(ms) {
 async function getRivalDuoStatusLabel(duo) {
   const members = getRivalDuoMembers(duo)
 
-  if (members.length < 2) return "⏳ Waiting Partner"
-
-const eliteOnline = await getOnlineIDs("Elite_Four")
-
-const bothOnline = members.every(member => {
-  return (
-    duo.onlineUsers?.[member.discordId] === true &&
-    eliteOnline.includes(String(member.gameId))
-  )
-})
-
-  if (duo.status === "online" && bothOnline && duo.activeGameId) {
-    return "🟢 Online"
+  if (members.length < 2) {
+    return "⏳ Waiting Partner"
   }
 
-  if (!bothOnline) {
-    return "⏳ Waiting Both Online"
-  }
+  const onlineCount = members.filter(member =>
+    duo.onlineUsers?.[member.discordId] === true
+  ).length
 
-  if (duo.status === "offline") {
+  if (onlineCount < 2) {
     return "🔴 Offline"
   }
 
-  return "⚫ Offline"
+  if (duo.activeGameId) {
+    return "🟢 Online"
+  }
+
+  return "⚫ Idle"
 }
 
 async function buildRivalDuoListMessage() {
@@ -1182,7 +1174,6 @@ async function buildRivalDuoListMessage() {
 
   for (const duo of list) {
     const members = getRivalDuoMembers(duo)
-    const status = await getRivalDuoStatusLabel(duo)
 
     const activeMember = members.find(m => {
       return String(m.discordId) === String(duo.activeDiscordId)
@@ -2286,26 +2277,16 @@ const rivalDuos = await loadAllRivalDuos()
 
 for (const duo of Object.values(rivalDuos)) {
   if (!duo) continue
+  if (!duo.activeGameId) continue
 
-  const members = getRivalDuoMembers(duo)
+  const activeMember = duo.members?.[duo.activeDiscordId]
 
-  for (const member of members) {
-    const gameId = String(member.gameId || "").trim()
+  if (!activeMember) continue
 
-    if (!gameId) continue
-    if (!onlineIds.includes(gameId)) continue
+  msg += `🤝 ${activeMember.name} | 📡 ${activeMember.heartbeatName} → Rival Duo Active: ${duo.activeGameId}\n`
 
-    const displayName =
-  member.name ||
-  member.heartbeatName ||
-  `<@${member.discordId}>`
-
-msg += `🤝 ${displayName} | 📡 ${member.heartbeatName || displayName} → Rival Duo: ${gameId}\n`
-
-    found = true
-  }
-}
-    
+  found = true
+} 
     if (!found)
       msg += "⚫ No registered users online\n";
 
