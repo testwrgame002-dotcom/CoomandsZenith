@@ -869,10 +869,7 @@ async function activateRivalDuoId(duo, force = false) {
 const eliteOnline = await getOnlineIDs("Elite_Four")
 
 const bothOnline = members.every(member => {
-  return (
-    duo.onlineUsers?.[member.discordId] === true &&
-    eliteOnline.includes(String(member.gameId))
-  )
+  return duo.onlineUsers?.[member.discordId] === true
 })
 
   if (!bothOnline) {
@@ -951,7 +948,6 @@ async function setRivalDuoOnline(discordId) {
 
     duo.onlineUsers[discordId] = true
 
-    await redis.sadd("online:Elite_Four", duo.members[discordId].gameId)
 
     await saveRivalDuo(duo)
 
@@ -1159,6 +1155,7 @@ async function getRivalDuoStatusLabel(duo) {
 }
 
 async function buildRivalDuoListMessage() {
+  const status = await getRivalDuoStatusLabel(duo)
   const duos = await loadAllRivalDuos()
   const list = Object.values(duos).filter(Boolean)
 
@@ -2005,7 +2002,7 @@ return interaction.editReply("🟢 Secondary account set online. It now appears 
   // 🔹 OFFLINE
   if (interaction.commandName === "offline") {
 
-  await interaction.deferReply()
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral })
    if (await isActiveRivalDuo(interaction)) {
   const result = await setRivalDuoOffline(interaction.user.id, "manual_offline")
 
