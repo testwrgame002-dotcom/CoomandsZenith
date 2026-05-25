@@ -1137,7 +1137,7 @@ function formatRivalDuoTime(ms) {
   return `${seconds}s`
 }
 
-function getRivalDuoStatusLabel(duo) {
+async function getRivalDuoStatusLabel(duo) {
   const members = getRivalDuoMembers(duo)
 
   if (members.length < 2) return "⏳ Waiting Partner"
@@ -1182,7 +1182,7 @@ async function buildRivalDuoListMessage() {
 
   for (const duo of list) {
     const members = getRivalDuoMembers(duo)
-    const status = getRivalDuoStatusLabel(duo)
+    const status = await getRivalDuoStatusLabel(duo)
 
     const activeMember = members.find(m => {
       return String(m.discordId) === String(duo.activeDiscordId)
