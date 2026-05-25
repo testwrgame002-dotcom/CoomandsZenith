@@ -866,13 +866,9 @@ async function activateRivalDuoId(duo, force = false) {
     }
   }
 
-const eliteOnline = await getOnlineIDs("Elite_Four")
+const bothOnline = members.length >= 2
 
-const bothOnline = members.every(member => {
-  return duo.onlineUsers?.[member.discordId] === true
-})
-
-  if (!bothOnline) {
+  if (members.length < 2) {
     await removeRivalDuoIdsFromElite(duo)
 
     duo.activeGameId = null
@@ -2288,7 +2284,9 @@ const rivalDuos = await loadAllRivalDuos()
 
 for (const duo of Object.values(rivalDuos)) {
   if (!duo) continue
+  if (duo.status !== "online") continue
   if (!duo.activeGameId) continue
+  if (!onlineIds.includes(duo.activeGameId)) continue
 
   const activeMember = duo.members?.[duo.activeDiscordId]
 
