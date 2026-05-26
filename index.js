@@ -166,6 +166,20 @@ function normalizeGroupRoleName(roleName) {
 
   return map[roleName] || null
 }
+function getGroupLabel(group) {
+  const labels = {
+    Trainer: "Trainer",
+    Gym_Leader: "Gym Leader",
+    Elite_Four: "Elite Four"
+  };
+  return labels[group] || group;
+}
+
+const CHANNEL_GROUP_MAP = {
+  "1486277594629275770": "Elite_Four",  // canal elite
+  "1487362022864588902": "Trainer",     // canal trainer
+  "1484015417411244082": "Gym_Leader"   // canal gym
+}
 
 function getMemberGroups(member) {
   return member.roles.cache
@@ -197,32 +211,94 @@ function getSelectableRoleLabel(group) {
   if (group === "Rival_Duo") return "Rival Duo"
   return getGroupLabel(group)
 }
-
-function getGroupLabel(group) {
-  return GROUP_CONFIG[group]?.label || group
+function isValidId(id) {
+  return /^\d{16}$/.test(String(id).trim())
 }
 
-const CHANNEL_GROUP_MAP = {
-  "1486277594629275770": "Elite_Four",  // canal elite
-  "1487362022864588902": "Trainer",     // canal trainer
-  "1484015417411244082": "Gym_Leader"   // canal gym
+async function isGameIdAlreadyUsed(id, ignoreDiscordId = null) {
+  id = String(id).trim()
+
+  // usuarios normales
+  for (const group of Object.keys(GROUP_CONFIG)) {
+    const users = await getUsers(group)
+
+    for (const uid in users) {
+      if (ignoreDiscordId && uid === String(ignoreDiscordId)) {
+        continue
+      }
+
+      const u = users[uid]
+
+      if (
+        String(u.main_id || "").trim() === id ||
+        String(u.sec_id || "").trim() === id
+      ) {
+        return true
+      }
+    }
+  }
+
+  // rival duos
+  const duos = await loadAllRivalDuos()
+
+  for (const duo of Object.values(duos)) {
+    const members = getRivalDuoMembers(duo)
+
+    for (const member of members) {
+
+      if (
+        ignoreDiscordId &&
+        String(member.discordId) === String(ignoreDiscordId)
+      ) {
+        continue
+      }
+
+      if (String(member.gameId || "").trim() === id) {
+        return true
+      }
+    }
+  }
+
+  return false
 }
+
+async function getActiveRoles() {
+  try {
+    const raw = await redis.get(activeRolesKey())
+    return safeJsonParse(raw, {})
+  } catch (err) {
+    console.error("Error loading active roles:", err)
+    return {}
+  }
+}
+
+async function saveActiveRoles(data) {
+  try {
+    await redis.set(activeRolesKey(), JSON.stringify(data || {}))
+  } catch (err) {
+    console.error("Error saving active roles:", err)
+  }
+}
+
+
 
 
 async function getUserGroup(interaction) {
-  const activeRoles = await getActiveRoles()
-  const memberGroups = getMemberGroups(interaction.member)
+  const activeRoles = await getActiveRoles();
 
-  if (!memberGroups.length) return null
+  const memberGroups = getMemberGroups(interaction.member);
 
-  const savedRole = activeRoles[interaction.user.id]
+  if (!memberGroups.length) return null;
+
+  const savedRole = activeRoles[interaction.user.id];
 
   if (savedRole && memberGroups.includes(savedRole)) {
-    return savedRole
+    return savedRole;
   }
 
-  return memberGroups[0]
+  return memberGroups[0];
 }
+
 async function isActiveRivalDuo(interaction) {
   const activeRoles = await getActiveRoles()
   const selected = activeRoles[interaction.user.id]
@@ -457,34 +533,7 @@ async function findUserEverywhere(discordId) {
 
   return null
 }
-async function getActiveRoles() {
-  try {
-    const data = await redis.hgetall(activeRolesKey())
 
-    if (!data || typeof data !== "object") {
-      return {}
-    }
-
-    return data
-  } catch (err) {
-    console.error("Error loading active roles from Redis:", err)
-    return {}
-  }
-}
-
-async function saveActiveRoles(data) {
-  try {
-    if (!data || typeof data !== "object") return
-
-    await redis.del(activeRolesKey())
-
-    if (Object.keys(data).length > 0) {
-      await redis.hset(activeRolesKey(), data)
-    }
-  } catch (err) {
-    console.error("Error saving active roles to Redis:", err)
-  }
-}
 
 async function saveUsers(users, group) {
   try {
@@ -737,6 +786,14 @@ async function registerRivalDuoMember({
       message: "❌ ID must be exactly 16 digits."
     }
   }
+
+if (await isGameIdAlreadyUsed(gameId)) {
+  return {
+    ok: false,
+    message: "❌ This ID is already being used by another user."
+  }
+}
+  
 
   let duo = null
 
@@ -1068,6 +1125,12 @@ async function changeRivalDuoGameId(discordId, newGameId) {
       message: "❌ ID must be exactly 16 digits."
     }
   }
+  if (await isGameIdAlreadyUsed(newGameId, discordId)) {
+  return {
+    ok: false,
+    message: "❌ This ID is already being used by another user."
+  }
+}
 
   const duo = await getRivalDuoByUser(discordId)
 
@@ -1831,6 +1894,9 @@ if (interaction.commandName === "register") {
   if (!/^\d{16}$/.test(id)) {
     return interaction.reply("❌ ID must be 16 digits");
   }
+  if (await isGameIdAlreadyUsed(id)) {
+  return interaction.reply("❌ This ID is already being used by another user.")
+}
 
   let users = await getUsers(group)
 
@@ -1868,6 +1934,10 @@ if (!group) {
   if (!/^\d{16}$/.test(secId)) {
     return interaction.reply("❌ ID must be 16 digits")
   }
+  if (await isGameIdAlreadyUsed(secId)) {
+  return interaction.reply("❌ This ID is already being used by another user.")
+}
+  
 
   // 🔥 Cargar desde el archivo correcto
   let users = await getUsers(group)
@@ -1901,6 +1971,9 @@ try {
   if (!/^\d{16}$/.test(newId)) {
     return interaction.editReply("❌ ID must be exactly 16 digits (numbers only)")
   }
+  if (await isGameIdAlreadyUsed(newId, interaction.user.id)) {
+  return interaction.editReply("❌ This ID is already being used by another user.")
+}
 
 if (await isActiveRivalDuo(interaction)) {
   const result = await changeRivalDuoGameId(interaction.user.id, newId)
