@@ -2423,7 +2423,10 @@ for (const uid in registeredUsers) {
   }
 }
 
-if (group === "Elite_Four") {
+if (
+  group === "Elite_Four" ||
+  group === "Rival_Duo"
+) {
 
   const rivalDuos = await loadAllRivalDuos()
 
