@@ -285,34 +285,51 @@ async function saveActiveRoles(data) {
 
 async function getUserGroup(interaction) {
 
-  const savedRole = await getActiveRoles(interaction.user.id);
+  const memberGroups = getMemberSelectableRoles(interaction.member)
 
-  if (!savedRole) return null;
+  if (!memberGroups.length) {
+    return null
+  }
 
-  const normalizedSavedRole = savedRole
-    .toLowerCase()
-    .replace(/_/g, " ")
-    .trim();
+  // intentar formato NUEVO
+  let savedRole = await redis.get(`active_roles:${interaction.user.id}`)
 
-  const hasRole = interaction.member.roles.cache.some(role =>
-    role.name
-      .toLowerCase()
-      .replace(/_/g, " ")
-      .trim() === normalizedSavedRole
-  );
+  // fallback formato VIEJO HASH
+  if (!savedRole) {
+    try {
+      const oldRoles = await redis.hgetall(activeRolesKey())
 
-  if (!hasRole) return null;
+      if (oldRoles && typeof oldRoles === "object") {
+        savedRole = oldRoles[interaction.user.id]
+      }
+    } catch (err) {
+      console.error("Error loading old active roles:", err)
+    }
+  }
 
-  const matchedRole = interaction.member.roles.cache.find(role =>
-    role.name
-      .toLowerCase()
-      .replace(/_/g, " ")
-      .trim() === normalizedSavedRole
-  );
+  // usar rol guardado si aún lo tiene
+  if (
+    savedRole &&
+    memberGroups.includes(savedRole)
+  ) {
+    return savedRole
+  }
 
-  return matchedRole
-    ? normalizeSelectableRoleName(matchedRole.name)
-    : null;
+  // fallback automático por prioridad
+  const priority = [
+    "Rival_Duo",
+    "Elite_Four",
+    "Gym_Leader",
+    "Trainer"
+  ]
+
+  for (const role of priority) {
+    if (memberGroups.includes(role)) {
+      return role
+    }
+  }
+
+  return null
 }
 
 async function isActiveRivalDuo(interaction) {
