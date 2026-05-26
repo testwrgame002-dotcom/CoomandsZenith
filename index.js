@@ -261,21 +261,14 @@ async function isGameIdAlreadyUsed(id, ignoreDiscordId = null) {
 
 async function getActiveRoles(userId) {
   try {
-    const key = `active_roles:${userId}`;
+    const role = await redis.hget(activeRolesKey(), String(userId))
 
-    const keyType = await redis.type(key);
+    if (!role) return null
 
-    if (keyType !== "string" && keyType !== "none") {
-      console.log(`⚠️ Deleting invalid key type for ${key}: ${keyType}`);
-      await redis.del(key);
-      return null;
-    }
-
-    return await redis.get(key);
-
+    return role
   } catch (error) {
-    console.error("Error loading active roles:", error);
-    return null;
+    console.error("Error loading active role:", error)
+    return null
   }
 }
 
@@ -296,28 +289,30 @@ async function getUserGroup(interaction) {
 
   if (!savedRole) return null;
 
-const normalizedSavedRole = savedRole
-  .toLowerCase()
-  .replace(/_/g, " ")
-  .trim();
-
-const hasRole = interaction.member.roles.cache.some(role =>
-  role.name
+  const normalizedSavedRole = savedRole
     .toLowerCase()
     .replace(/_/g, " ")
-    .trim() === normalizedSavedRole
-);
+    .trim();
+
+  const hasRole = interaction.member.roles.cache.some(role =>
+    role.name
+      .toLowerCase()
+      .replace(/_/g, " ")
+      .trim() === normalizedSavedRole
+  );
 
   if (!hasRole) return null;
 
- const matchedRole = interaction.member.roles.cache.find(role =>
-  role.name
-    .toLowerCase()
-    .replace(/_/g, " ")
-    .trim() === normalizedSavedRole
-);
+  const matchedRole = interaction.member.roles.cache.find(role =>
+    role.name
+      .toLowerCase()
+      .replace(/_/g, " ")
+      .trim() === normalizedSavedRole
+  );
 
-return matchedRole ? matchedRole.name : null;;
+  return matchedRole
+    ? normalizeSelectableRoleName(matchedRole.name)
+    : null;
 }
 
 async function isActiveRivalDuo(interaction) {
