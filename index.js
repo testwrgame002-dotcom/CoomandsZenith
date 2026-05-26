@@ -144,9 +144,6 @@ function buildUserData(oldData, interaction, updates = {}) {
   }
 }
 
-function isValidId(id) {
-  return /^\d{16}$/.test(String(id || "").trim())
-}
 
 function normalizeRedisIds(ids) {
   if (!Array.isArray(ids)) return []
@@ -284,9 +281,10 @@ async function saveActiveRoles(data) {
 
 
 async function getUserGroup(interaction) {
+
   const activeRoles = await getActiveRoles();
 
-  const memberGroups = getMemberGroups(interaction.member);
+  const memberGroups = getMemberSelectableRoles(interaction.member);
 
   if (!memberGroups.length) return null;
 
@@ -544,7 +542,6 @@ async function saveUsers(users, group) {
 
     const key = usersKey(group)
 
-    await redis.del(key)
 
     const payload = {}
 
@@ -779,6 +776,15 @@ async function registerRivalDuoMember({
   discordId = String(discordId)
   gameId = String(gameId || "").trim()
   duoId = duoId ? String(duoId) : null
+
+  const existing = await getRivalDuoByUser(discordId)
+
+if (existing) {
+  return {
+    ok: false,
+    message: "❌ You are already registered in a Rival Duo."
+  }
+}
 
   if (!isValidGameId(gameId)) {
     return {
@@ -1975,7 +1981,9 @@ try {
   return interaction.editReply("❌ This ID is already being used by another user.")
 }
 
-if (await isActiveRivalDuo(interaction)) {
+const activeRole = await getUserGroup(interaction)
+
+if (activeRole === "Rival_Duo") {
   const result = await changeRivalDuoGameId(interaction.user.id, newId)
   return interaction.editReply(result.message)
 }
@@ -2032,7 +2040,9 @@ return interaction.editReply(
 
   
   if (interaction.commandName === "online") {
-if (await isActiveRivalDuo(interaction)) {
+const activeRole = await getUserGroup(interaction)
+
+if (activeRole === "Rival_Duo") {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral })
 
   const result = await setRivalDuoOnline(interaction.user.id)
@@ -2075,17 +2085,14 @@ if (interaction.commandName === "online_sec") {
   })
 }
 
-const group = await getUserGroup(interaction);
+const found = await findUserEverywhere(interaction.user.id)
 
-if (!group) {
-  return interaction.reply("❌ No group");
+if (!found) {
+  return interaction.reply("❌ You must register first")
 }
 
-  const config = GROUP_CONFIG[group]
-
-  let users = await getUsers(group)
-
-  const userData = users[interaction.user.id]
+const group = found.group
+const userData = found.user
 
   if (!userData || !userData.sec_id) {
     return interaction.reply("❌ You must register your secondary ID first")
@@ -2111,7 +2118,9 @@ return interaction.editReply("🟢 Secondary account set online. It now appears 
   if (interaction.commandName === "offline") {
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral })
-   if (await isActiveRivalDuo(interaction)) {
+   const activeRole = await getUserGroup(interaction)
+
+if (activeRole === "Rival_Duo") {
   const result = await setRivalDuoOffline(interaction.user.id, "manual_offline")
 
   return interaction.editReply(result.message)
