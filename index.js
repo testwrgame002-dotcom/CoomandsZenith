@@ -2423,22 +2423,41 @@ for (const uid in registeredUsers) {
   }
 }
 
-const rivalDuos = await loadAllRivalDuos()
+if (group === "Elite_Four") {
 
-for (const duo of Object.values(rivalDuos)) {
-  if (!duo) continue
-  if (duo.status !== "online") continue
-  if (!duo.activeGameId) continue
-  if (!onlineIds.includes(duo.activeGameId)) continue
+  const rivalDuos = await loadAllRivalDuos()
 
-  const activeMember = duo.members?.[duo.activeDiscordId]
+  for (const duo of Object.values(rivalDuos)) {
 
-  if (!activeMember) continue
+    if (!duo) continue
 
-  msg += `🤝 ${activeMember.name} | 📡 ${activeMember.heartbeatName} → Rival Duo Active: ${duo.activeGameId}\n`
+    const members = getRivalDuoMembers(duo)
 
-  found = true
-} 
+    for (const member of members) {
+
+      const gameId = String(member.gameId || "").trim()
+
+      if (!gameId) continue
+
+      // SOLO mostrar ID ACTIVO
+      if (String(duo.activeGameId || "").trim() !== gameId) {
+        continue
+      }
+
+      // SOLO si está online en Elite Four
+      if (!normalizedIds.includes(gameId)) {
+        continue
+      }
+
+      msg +=
+        `🤝 ${member.name || "Unknown"} | ` +
+        `📡 ${member.heartbeatName || member.name || "Unknown"} ` +
+        `→ Rival Duo Active: ${gameId}\n`
+
+      found = true
+    }
+  }
+}
     if (!found)
       msg += "⚫ No registered users online\n";
 
