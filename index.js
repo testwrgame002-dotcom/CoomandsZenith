@@ -291,17 +291,18 @@ async function saveActiveRoles(data) {
 
 
 async function getUserGroup(interaction) {
-const savedRole = await getActiveRoles(interaction.user.id);
 
-const memberGroups = getMemberSelectableRoles(interaction.member);
+  const savedRole = await getActiveRoles(interaction.user.id);
 
-if (!memberGroups.length) return null;
+  if (!savedRole) return null;
 
-  if (savedRole && memberGroups.includes(savedRole)) {
-    return savedRole;
-  }
+  const hasRole = interaction.member.roles.cache.some(role =>
+    role.name === savedRole
+  );
 
-  return memberGroups[0];
+  if (!hasRole) return null;
+
+  return savedRole;
 }
 
 async function isActiveRivalDuo(interaction) {
