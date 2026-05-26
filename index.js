@@ -296,13 +296,28 @@ async function getUserGroup(interaction) {
 
   if (!savedRole) return null;
 
-  const hasRole = interaction.member.roles.cache.some(role =>
-    role.name === savedRole
-  );
+const normalizedSavedRole = savedRole
+  .toLowerCase()
+  .replace(/_/g, " ")
+  .trim();
+
+const hasRole = interaction.member.roles.cache.some(role =>
+  role.name
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .trim() === normalizedSavedRole
+);
 
   if (!hasRole) return null;
 
-  return savedRole;
+ const matchedRole = interaction.member.roles.cache.find(role =>
+  role.name
+    .toLowerCase()
+    .replace(/_/g, " ")
+    .trim() === normalizedSavedRole
+);
+
+return matchedRole ? matchedRole.name : null;;
 }
 
 async function isActiveRivalDuo(interaction) {
