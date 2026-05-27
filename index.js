@@ -2016,78 +2016,72 @@ try {
   if (!/^\d{16}$/.test(newId)) {
     return interaction.editReply("❌ ID must be exactly 16 digits (numbers only)")
   }
+
   if (await isGameIdAlreadyUsed(newId, interaction.user.id)) {
-  return interaction.editReply("❌ This ID is already being used by another user.")
-}
+    return interaction.editReply("❌ This ID is already being used by another user.")
+  }
 
-const activeRole = await getUserGroup(interaction)
+  const activeRole = await getUserGroup(interaction)
 
-if (activeRole === "Rival_Duo") {
-  const result = await changeRivalDuoGameId(interaction.user.id, newId)
-  return interaction.editReply(result.message)
-}
+  // RIVAL DUO
+  if (activeRole === "Rival_Duo") {
 
-const activeRole = await getUserGroup(interaction)
+    const result = await changeRivalDuoGameId(
+      interaction.user.id,
+      newId
+    )
 
-if (!activeRole) {
-  return interaction.editReply("❌ No active role selected")
-}
+    return interaction.editReply(result.message)
+  }
 
-let users = await getUsers(activeRole)
+  // USAR ROL ACTIVO DIRECTAMENTE
+  const group = activeRole
 
-let userData = users[interaction.user.id]
+  let users = await getUsers(group)
 
-if (!userData) {
+  const userData = users[interaction.user.id]
 
-  const found = await findUserEverywhere(interaction.user.id)
-
-  if (!found) {
+  if (!userData) {
     return interaction.editReply("❌ You must register first")
   }
 
-  userData = found.user
-}
+  // OFFLINE ID VIEJO
+  if (userData.main_id) {
+    await setOnlineStatus(
+      "offline",
+      userData.main_id,
+      group
+    )
+  }
 
-    if (!userData) {
-      return interaction.editReply("❌ You must register first")
+  // ACTUALIZAR
+  users[interaction.user.id] = buildUserData(
+    userData,
+    interaction,
+    {
+      main_id: newId,
+      sec_id: userData.sec_id || null
     }
+  )
 
-    // 🔴 Poner OFFLINE el main_id anterior
-if (userData.main_id) {
-  const okOffline = await setOnlineStatus(
-  "offline",
-  userData.main_id,
-  activeRole
-);
-  if (!okOffline) {
-    console.error("Error putting old ID offline:", userData.main_id);
+  await saveUsers(users, group)
+
+  return interaction.editReply(
+    `🔄 Main ID updated in **${group}**\n` +
+    `👤 Display name: **${users[interaction.user.id].name}**\n` +
+    `📡 Heartbeat name: **${users[interaction.user.id].heartbeatName}**`
+  )
+
+} catch (error) {
+
+  console.error("CHANGE ERROR:", error)
+
+  if (interaction.deferred || interaction.replied) {
+    return interaction.editReply("❌ Unexpected error updating ID")
+  } else {
+    return interaction.reply("❌ Unexpected error updating ID")
   }
 }
-
-    // 🔄 Actualizar manteniendo sec_id
-users[interaction.user.id] = buildUserData(userData, interaction, {
-  main_id: newId,
-  sec_id: userData.sec_id || null
-})
-
-await saveUsers(users, activeRole)
-
-return interaction.editReply(
-  `🔄 Main ID updated in **${activeRole}**\n` +
-  `👤 Display name: **${users[interaction.user.id].name}**\n` +
-  `📡 Heartbeat name: **${users[interaction.user.id].heartbeatName}**`
-)
-
-  } catch (error) {
-
-    console.error("CHANGE ERROR:", error)
-
-    if (interaction.deferred || interaction.replied) {
-      return interaction.editReply("❌ Unexpected error updating ID")
-    } else {
-      return interaction.reply("❌ Unexpected error updating ID")
-    }
-  }
 }
 
   
