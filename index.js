@@ -2384,94 +2384,85 @@ if (interaction.commandName === "list") {
 
  // 🔹 ONLINE LIST
 if (interaction.commandName === "online_list") {
+
+  await interaction.deferReply({
+    flags: MessageFlags.Ephemeral
+  })
+
   try {
-    await interaction.deferReply({
-  flags: MessageFlags.Ephemeral
-});
 
-    const group = await getUserGroup(interaction);
-    if (!group)
-      return interaction.editReply("❌ You don't belong to any reroll group");
+    const activeRole = await getUserGroup(interaction)
 
-    const onlineIds = await getOnlineIDs(group)
+    // ===== RIVAL DUO =====
+    if (activeRole === "Rival_Duo") {
 
-    if (onlineIds.length === 0)
-      return interaction.editReply(`⚫ No users online in ${group}`);
+      const duos = await getAllRivalDuosByUser(interaction.user.id)
 
-    // 🔹 Obtener usuarios registrados del grupo
-    const registeredUsers = await getUsers(group)
-
-    let msg = `🟢 **Online users in ${group}:**\n\n`;
-    let found = false;
-
-    // 🔥 Optimizado (sin doble loop innecesario)
- // 🔥 Mostrar Main y Sec correctamente si están online
-for (const uid in registeredUsers) {
-  const user = registeredUsers[uid];
-
-  const mainId = (user.main_id || "").trim();
-  const secId = (user.sec_id || "").trim();
-
-  const mainOnline = mainId && onlineIds.includes(mainId);
-  const secOnline = secId && onlineIds.includes(secId);
-
-  if (mainOnline || secOnline) {
-    const shownIds = [];
-
-    if (mainOnline) shownIds.push(`Main: ${mainId}`);
-    if (secOnline) shownIds.push(`Sec: ${secId}`);
-
-    msg += `👤 ${user.name} | 📡 ${user.heartbeatName || user.name} → ${shownIds.join(" | ")}\n`;
-    found = true;
-  }
-}
-
-if (
-  group === "Elite_Four" ||
-  group === "Rival_Duo"
-) {
-
-  const rivalDuos = await loadAllRivalDuos()
-
-  for (const duo of Object.values(rivalDuos)) {
-
-    if (!duo) continue
-
-    const members = getRivalDuoMembers(duo)
-
-    for (const member of members) {
-
-      const gameId = String(member.gameId || "").trim()
-
-      if (!gameId) continue
-
-      // SOLO mostrar ID ACTIVO
-      if (String(duo.activeGameId || "").trim() !== gameId) {
-        continue
+      if (!duos.length) {
+        return interaction.editReply("❌ You are not registered in any Rival Duo.")
       }
 
-      // SOLO si está online en Elite Four
-      if (!normalizedIds.includes(gameId)) {
-        continue
+      let msg = ""
+
+      for (const duo of duos) {
+
+        const members = getRivalDuoMembers(duo)
+
+        msg += `🤝 **${displayRivalDuoName(duo)}**\n`
+
+        for (const member of members) {
+
+          const online =
+            duo.onlineUsers?.[member.discordId]
+              ? "🟢"
+              : "🔴"
+
+          const active =
+            String(member.discordId) === String(duo.activeDiscordId)
+              ? " ⭐ ACTIVE"
+              : ""
+
+          msg += `${online} <@${member.discordId}> | \`${member.gameId}\`${active}\n`
+        }
+
+        msg += "\n"
       }
 
-      msg +=
-        `🤝 ${member.name || "Unknown"} | ` +
-        `📡 ${member.heartbeatName || member.name || "Unknown"} ` +
-        `→ Rival Duo Active: ${gameId}\n`
-
-      found = true
+      return interaction.editReply(msg)
     }
-  }
-}
-    if (!found)
-      msg += "⚫ No registered users online\n";
 
-    return interaction.editReply(msg);
+    // ===== NORMAL GROUPS =====
+    const found = await findUserEverywhere(interaction.user.id)
 
-  } catch (error) {
-    console.error("Online list error:", error);
-    return interaction.editReply("❌ Something went wrong");
+    if (!found) {
+      return interaction.editReply("❌ You are not registered.")
+    }
+
+    const group = found.group
+
+    const onlineUsers = await getOnlineUsersByGroup(group)
+
+    if (!onlineUsers.length) {
+      return interaction.editReply(
+        `⚫ No users online in ${group}`
+      )
+    }
+
+    let msg = `🟢 Online users in **${group}**\n\n`
+
+    for (const user of onlineUsers) {
+      msg += `• ${user.label} — \`${user.id}\`\n`
+    }
+
+    return interaction.editReply(msg)
+
+  } catch (err) {
+
+    console.error("ONLINE_LIST ERROR:", err)
+
+    return interaction.editReply(
+      "❌ Something went wrong loading online list."
+    )
   }
 }
 
