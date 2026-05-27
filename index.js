@@ -2027,17 +2027,26 @@ if (activeRole === "Rival_Duo") {
   return interaction.editReply(result.message)
 }
 
-const found = await findUserEverywhere(interaction.user.id)
+const activeRole = await getUserGroup(interaction)
 
-if (!found) {
-  return interaction.editReply("❌ You must register first")
+if (!activeRole) {
+  return interaction.editReply("❌ No active role selected")
 }
 
-const group = found.group
+let users = await getUsers(activeRole)
 
-let users = await getUsers(group)
+let userData = users[interaction.user.id]
 
-const userData = found.user
+if (!userData) {
+
+  const found = await findUserEverywhere(interaction.user.id)
+
+  if (!found) {
+    return interaction.editReply("❌ You must register first")
+  }
+
+  userData = found.user
+}
 
     if (!userData) {
       return interaction.editReply("❌ You must register first")
@@ -2045,7 +2054,11 @@ const userData = found.user
 
     // 🔴 Poner OFFLINE el main_id anterior
 if (userData.main_id) {
-  const okOffline = await setOnlineStatus("offline", userData.main_id, group);
+  const okOffline = await setOnlineStatus(
+  "offline",
+  userData.main_id,
+  activeRole
+);
   if (!okOffline) {
     console.error("Error putting old ID offline:", userData.main_id);
   }
@@ -2057,10 +2070,10 @@ users[interaction.user.id] = buildUserData(userData, interaction, {
   sec_id: userData.sec_id || null
 })
 
-await saveUsers(users, group)
+await saveUsers(users, activeRole)
 
 return interaction.editReply(
-  `🔄 Main ID updated in **${group}**\n` +
+  `🔄 Main ID updated in **${activeRole}**\n` +
   `👤 Display name: **${users[interaction.user.id].name}**\n` +
   `📡 Heartbeat name: **${users[interaction.user.id].heartbeatName}**`
 )
