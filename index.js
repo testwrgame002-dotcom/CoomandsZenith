@@ -374,34 +374,6 @@ function buildUserLabel(user, id) {
 
 async function getOnlineUsersByGroup(group) {
   // ===== AGREGAR RIVAL DUOS ACTIVOS =====
-
-if (group === "Elite_Four") {
-
-  const duos = await loadAllRivalDuos()
-
-  for (const duo of Object.values(duos)) {
-
-    if (!duo) continue
-
-    if (duo.status !== "online") continue
-
-    if (!duo.activeGameId) continue
-
-    const activeMember = getRivalDuoMembers(duo).find(m =>
-      String(m.discordId) === String(duo.activeDiscordId)
-    )
-
-    if (!activeMember) continue
-
-    onlineUsers.push({
-      id: duo.activeGameId,
-      label:
-        `🤝 ${displayRivalDuoName(duo)} ` +
-        `(ACTIVE: ${activeMember.name})`,
-      user: null
-    })
-  }
-}
   
   if (!GROUP_CONFIG[group]) return []
 
@@ -2471,6 +2443,35 @@ if (interaction.commandName === "online_list") {
 
     // 🔥 CARGAR SOLO EL GRUPO ACTIVO
     const onlineUsers = await getOnlineUsersByGroup(group)
+    // ===== AGREGAR RIVAL DUOS ACTIVOS =====
+
+if (group === "Elite_Four") {
+
+  const duos = await loadAllRivalDuos()
+
+  for (const duo of Object.values(duos)) {
+
+    if (!duo) continue
+
+    if (duo.status !== "online") continue
+
+    if (!duo.activeGameId) continue
+
+    const activeMember = getRivalDuoMembers(duo).find(m =>
+      String(m.discordId) === String(duo.activeDiscordId)
+    )
+
+    if (!activeMember) continue
+
+    onlineUsers.push({
+      id: duo.activeGameId,
+      label:
+        `🤝 ${displayRivalDuoName(duo)} ` +
+        `(ACTIVE: ${activeMember.name})`,
+      user: null
+    })
+  }
+}
 
     if (!onlineUsers.length) {
       return interaction.editReply(
