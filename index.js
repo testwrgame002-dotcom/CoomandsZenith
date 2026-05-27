@@ -1640,9 +1640,10 @@ if (!openDuos.length) {
   const result = await registerRivalDuoMember(pending)
 
   if (result.ok) {
-    await redis.hset(activeRolesKey(), {
-      [interaction.user.id]: "Rival_Duo"
-    })
+await redis.set(
+  `active_roles:${interaction.user.id}`,
+  "Rival_Duo"
+)
   }
 
   return interaction.reply({
@@ -1699,9 +1700,10 @@ if (!openDuos.length) {
 })
 
 if (result.ok) {
-  await redis.hset(activeRolesKey(), {
-    [interaction.user.id]: "Rival_Duo"
-  })
+await redis.set(
+  `active_roles:${interaction.user.id}`,
+  "Rival_Duo"
+)
 }
 
 await clearPendingRivalDuoRegistration(interaction.user.id)
@@ -2259,9 +2261,10 @@ if (interaction.isStringSelectMenu() && interaction.customId === "select_active_
 
   const selected = interaction.values[0]
 
-  await redis.hset(activeRolesKey(), {
-    [interaction.user.id]: selected
-  })
+await redis.set(
+  `active_roles:${interaction.user.id}`,
+  selected
+)
 
   return interaction.update({
     content: `✅ Active role set to **${getSelectableRoleLabel(selected)}**`,
