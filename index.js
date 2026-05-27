@@ -2391,15 +2391,22 @@ if (interaction.commandName === "online_list") {
 
   try {
 
-    const activeRole = await getUserGroup(interaction)
+    // 🔥 USAR ROL ACTIVO
+    const group = await getUserGroup(interaction)
+
+    if (!group) {
+      return interaction.editReply("❌ No active role selected.")
+    }
 
     // ===== RIVAL DUO =====
-    if (activeRole === "Rival_Duo") {
+    if (group === "Rival_Duo") {
 
       const duos = await getAllRivalDuosByUser(interaction.user.id)
 
       if (!duos.length) {
-        return interaction.editReply("❌ You are not registered in any Rival Duo.")
+        return interaction.editReply(
+          "❌ You are not registered in any Rival Duo."
+        )
       }
 
       let msg = ""
@@ -2431,15 +2438,7 @@ if (interaction.commandName === "online_list") {
       return interaction.editReply(msg)
     }
 
-    // ===== NORMAL GROUPS =====
-    const found = await findUserEverywhere(interaction.user.id)
-
-    if (!found) {
-      return interaction.editReply("❌ You are not registered.")
-    }
-
-    const group = found.group
-
+    // 🔥 CARGAR SOLO EL GRUPO ACTIVO
     const onlineUsers = await getOnlineUsersByGroup(group)
 
     if (!onlineUsers.length) {
