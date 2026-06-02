@@ -952,55 +952,52 @@ async function activateRivalDuoId(duo, force = false) {
 
   if (members.length < 2) {
     await removeRivalDuoIdsFromElite(duo)
-
     duo.activeGameId = null
     duo.activeDiscordId = null
     duo.status = "waiting_partner"
-
     await saveRivalDuo(duo)
-
-    return {
-      ok: false,
-      waiting: true,
-      message: "⏳ Waiting for reroll partner."
-    }
+    return { ok: false, waiting: true, message: "⏳ Waiting for reroll partner." }
   }
 
   if (!duo.onlineUsers || typeof duo.onlineUsers !== "object") {
     duo.onlineUsers = {}
   }
 
-  const allOnline = members.every(member => {
-    return duo.onlineUsers[member.discordId] === true
-  })
+  const allOnline = members.every(member => duo.onlineUsers[member.discordId] === true)
 
   if (!allOnline) {
     await removeRivalDuoIdsFromElite(duo)
-
     duo.activeGameId = null
     duo.activeDiscordId = null
     duo.status = "offline"
-
     await saveRivalDuo(duo)
-
-    return {
-      ok: false,
-      waiting: false,
-      message: "🔴 Rival Duo offline."
-    }
+    return { ok: false, waiting: false, message: "🔴 Rival Duo offline." }
   }
 
   const now = rivalNow()
-
-  const shouldRotate =
-    force ||
-    !duo.lastRotationAt ||
-    now - Number(duo.lastRotationAt || 0) >= RIVAL_DUO_ROTATION_MS
+  const shouldRotate = force || !duo.lastRotationAt || now - Number(duo.lastRotationAt || 0) >= RIVAL_DUO_ROTATION_MS
 
   if (!duo.activeGameId || shouldRotate) {
+    if (!duo.cededUsers) duo.cededUsers = {};
 
-    const index = Number(duo.activeIndex || 0) % members.length
-    const activeMember = members[index]
+    let index = Number(duo.activeIndex || 0) % members.length
+    let activeMember = members[index]
+
+    // Si el miembro elegido cedió su reroll, pasamos al siguiente automáticamente
+    if (duo.cededUsers[activeMember.discordId] === true) {
+      index = (index + 1) % members.length
+      activeMember = members[index]
+      
+      // Control de seguridad: Si AMBOS cedieron el reroll
+      if (duo.cededUsers[activeMember.discordId] === true) {
+        await removeRivalDuoIdsFromElite(duo)
+        duo.activeGameId = null
+        duo.activeDiscordId = null
+        duo.status = "idle"
+        await saveRivalDuo(duo)
+        return { ok: false, waiting: false, message: "⚫ Both members have yielded their reroll. Duo is idle." }
+      }
+    }
 
     await removeRivalDuoIdsFromElite(duo)
 
@@ -1011,7 +1008,6 @@ async function activateRivalDuoId(duo, force = false) {
     duo.status = "online"
 
     await redis.sadd("online:Elite_Four", activeMember.gameId)
-
     await saveRivalDuo(duo)
 
     return {
@@ -1029,7 +1025,6 @@ async function activateRivalDuoId(duo, force = false) {
   }
 
   duo.status = "online"
-
   await saveRivalDuo(duo)
 
   return {
@@ -1044,7 +1039,6 @@ async function activateRivalDuoId(duo, force = false) {
 
 async function setRivalDuoOnline(discordId) {
   discordId = String(discordId)
-
   const allDuos = await loadAllRivalDuos()
   const messages = []
   let found = false
@@ -1052,7 +1046,6 @@ async function setRivalDuoOnline(discordId) {
   for (const duoId in allDuos) {
     const duo = allDuos[duoId]
     if (!duo || !duo.members) continue
-
     if (!duo.members[discordId]) continue
 
     found = true
@@ -1063,18 +1056,18 @@ async function setRivalDuoOnline(discordId) {
 
     duo.onlineUsers[discordId] = true
 
-const members = getRivalDuoMembers(duo)
+    const members = getRivalDuoMembers(duo)
+    const allOnline = members.every(member => duo.onlineUsers?.[member.discordId] === true)
 
-const allOnline = members.every(member => {
-  return duo.onlineUsers?.[member.discordId] === true
-})
-
-if (allOnline) {
-  duo.status = "online"
-}
+    if (allOnline) {
+      duo.status = "online"
+    }
+    
     await saveRivalDuo(duo)
 
-    const result = await activateRivalDuoId(duo, false)
+    // Si el usuario actual cedió su reroll y el compañero ya está online, forzamos que se mantenga el compañero
+    const forceRotation = duo.cededUsers?.[discordId] === true && String(duo.activeDiscordId) === discordId;
+    const result = await activateRivalDuoId(duo, forceRotation)
 
     messages.push(
       `🤝 **${displayRivalDuoName(duo)}**\n${result.message}`
@@ -1082,16 +1075,10 @@ if (allOnline) {
   }
 
   if (!found) {
-    return {
-      ok: false,
-      message: "❌ You are not registered in any Rival Duo."
-    }
+    return { ok: false, message: "❌ You are not registered in any Rival Duo." }
   }
 
-  return {
-    ok: true,
-    message: messages.join("\n\n")
-  }
+  return { ok: true, message: messages.join("\n\n") }
 }
 
 async function setRivalDuoOffline(discordId, reason = "offline") {
@@ -1292,24 +1279,15 @@ async function buildRivalDuoListMessage() {
   }
 
   const rotationMs = RIVAL_DUO_ROTATION_MS
-
   let msg = "🤝 **Rival Duo List**\n\n"
-
   let index = 1
 
   for (const duo of list) {
-
     const status = await getRivalDuoStatusLabel(duo)
-
     const members = getRivalDuoMembers(duo)
 
-    const activeMember = members.find(m => {
-      return String(m.discordId) === String(duo.activeDiscordId)
-    })
-
-    const nextMember = members.find(m => {
-      return String(m.discordId) !== String(duo.activeDiscordId)
-    })
+    const activeMember = members.find(m => String(m.discordId) === String(duo.activeDiscordId))
+    const nextMember = members.find(m => String(m.discordId) !== String(duo.activeDiscordId))
 
     let elapsedText = "0s"
     let remainingText = "Not active"
@@ -1317,7 +1295,6 @@ async function buildRivalDuoListMessage() {
     if (duo.status === "online" && duo.activeGameId && duo.lastRotationAt) {
       const elapsed = Date.now() - Number(duo.lastRotationAt || 0)
       const remaining = Math.max(0, rotationMs - elapsed)
-
       elapsedText = formatRivalDuoTime(elapsed)
       remainingText = formatRivalDuoTime(remaining)
     }
@@ -1327,14 +1304,16 @@ async function buildRivalDuoListMessage() {
 
     if (members[0]) {
       const onlineIcon = duo.onlineUsers?.[members[0].discordId] ? "🟢" : "🔴"
-      msg += `${onlineIcon} User A: <@${members[0].discordId}> | ID: \`${members[0].gameId}\`\n`
+      const yieldedTag = duo.cededUsers?.[members[0].discordId] ? " 🚫 *(Yielded)*" : ""
+      msg += `${onlineIcon} User A: <@${members[0].discordId}> | ID: \`${members[0].gameId}\`${yieldedTag}\n`
     } else {
       msg += `⚫ User A: Empty\n`
     }
 
     if (members[1]) {
       const onlineIcon = duo.onlineUsers?.[members[1].discordId] ? "🟢" : "🔴"
-      msg += `${onlineIcon} User B: <@${members[1].discordId}> | ID: \`${members[1].gameId}\`\n`
+      const yieldedTag = duo.cededUsers?.[members[1].discordId] ? " 🚫 *(Yielded)*" : ""
+      msg += `${onlineIcon} User B: <@${members[1].discordId}> | ID: \`${members[1].gameId}\`${yieldedTag}\n`
     } else {
       msg += `⚫ User B: Empty\n`
     }
@@ -1477,6 +1456,9 @@ new SlashCommandBuilder()
           .setDescription("Your 16 digit secondary ID")
           .setRequired(true)
       ),
+    new SlashCommandBuilder()
+      .setName("yield_reroll")
+      .setDescription("Toggle Solo Mode by yielding or reclaiming your active reroll slot"),
 
 
 
@@ -1738,6 +1720,53 @@ return interaction.update({
   })
 }
 
+  // Dentro de tu interactionCreate para comandos de barra:
+  if (interaction.commandName === "yield_reroll") {
+    const hasRole = interaction.member.roles.cache.some(r => r.name === "Rival_Duo");
+
+    if (!hasRole) {
+      return interaction.reply({
+        content: "❌ You need the Rival_Duo role to use this command.",
+        flags: [MessageFlags.Ephemeral]
+      });
+    }
+
+    const discordId = String(interaction.user.id);
+    const duo = await getRivalDuoByUser(discordId);
+
+    if (!duo) {
+      return interaction.reply({
+        content: "❌ You are not registered in any active Rival Duo.",
+        flags: [MessageFlags.Ephemeral]
+      });
+    }
+
+    if (!duo.cededUsers) {
+      duo.cededUsers = {};
+    }
+
+    // Cambiar estado (True / False)
+    const isCeded = duo.cededUsers[discordId] === true;
+    duo.cededUsers[discordId] = !isCeded;
+
+    await saveRivalDuo(duo);
+
+    // Si el usuario cede su turno y está activo en este momento, forzamos rotación inmediata
+    if (duo.cededUsers[discordId] && String(duo.activeDiscordId) === discordId) {
+      await activateRivalDuoId(duo, true);
+    } else {
+      await saveRivalDuo(duo);
+    }
+
+    const estadoMsg = duo.cededUsers[discordId]
+      ? "⚠️ **You have yielded your reroll**. Your ID will be skipped during hourly rotations, keeping your partner active (Solo Mode)."
+      : "✅ **You have reclaimed your reroll**. Your ID will now participate in the normal hourly rotation again.";
+
+    return interaction.reply({
+      content: estadoMsg,
+      flags: [MessageFlags.Ephemeral]
+    });
+  }
 //SCHENDULE
 
 if (interaction.commandName === "schedule_events") {
