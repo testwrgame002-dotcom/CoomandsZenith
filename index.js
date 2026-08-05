@@ -1748,7 +1748,7 @@ if (interaction.commandName === "online_count") {
     const onlineUsers = await getOnlineUsersByGroup(group)
 
     lines.push(
-      `**${group}**: ${onlineUsers.length}/10 online`
+      `**${group}**: ${onlineUsers.length}/9 online`
     )
   }
 
@@ -2133,9 +2133,9 @@ await interaction.deferReply({ flags: MessageFlags.Ephemeral })
 
 const onlineUsers = await getOnlineUsersByGroup(group)
 
-if (onlineUsers.length >= 10) {
+if (onlineUsers.length >= 9) {
   return interaction.editReply(
-    `❌ The **${group}** group already has the maximum of **10** users online.`
+    `❌ The **${group}** group already has the maximum of **9** users online.`
   )
 }
 
