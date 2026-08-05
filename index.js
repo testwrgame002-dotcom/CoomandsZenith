@@ -1427,6 +1427,10 @@ new SlashCommandBuilder()
       .setName("yield_reroll")
       .setDescription("Toggle Solo Mode by yielding or reclaiming your active reroll slot"),
 
+      new SlashCommandBuilder()
+      .setName("online_count")
+  .setDescription("Shows how many users are online in each group."),
+
 
 
 ///////
@@ -1736,6 +1740,26 @@ return interaction.update({
   }
 //SCHENDULE
 
+if (interaction.commandName === "online_count") {
+
+  const lines = []
+
+  for (const group of Object.keys(GROUP_CONFIG)) {
+    const onlineUsers = await getOnlineUsersByGroup(group)
+
+    lines.push(
+      `**${group}**: ${onlineUsers.length}/10 online`
+    )
+  }
+
+  return interaction.reply({
+    content:
+      "## 🟢 Online Users\n\n" +
+      lines.join("\n"),
+    flags: MessageFlags.Ephemeral
+  })
+}
+  
 if (interaction.commandName === "schedule_events") {
 
   const mode = interaction.options.getString("mode")
@@ -2105,6 +2129,17 @@ const userData = found.user
 
 await interaction.deferReply({ flags: MessageFlags.Ephemeral })
 
+//limite10
+
+const onlineUsers = await getOnlineUsersByGroup(group)
+
+if (onlineUsers.length >= 10) {
+  return interaction.editReply(
+    `❌ The **${group}** group already has the maximum of **10** users online.`
+  )
+}
+
+    
 const ok = await setOnlineStatus("online", userData.main_id, group);
 
 if (!ok) {
