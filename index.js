@@ -2102,7 +2102,8 @@ if (!userData) {
 }
 
   
-  if (interaction.commandName === "online") {
+if (interaction.commandName === "online") {
+
 const activeRole = await getUserGroup(interaction)
 
 if (activeRole === "Rival_Duo") {
@@ -2113,23 +2114,38 @@ if (activeRole === "Rival_Duo") {
   return interaction.editReply(result.message)
 }
 
-const found = await findUserEverywhere(interaction.user.id)
-
-if (!found) {
-  return interaction.reply("❌ You must register first")
+if (!activeRole) {
+  return interaction.reply({
+    content: "❌ No active group selected.",
+    flags: MessageFlags.Ephemeral
+  })
 }
 
-const group = found.group
-const userData = found.user
 
-  // 🔥 CAMBIO IMPORTANTE
-  if (!userData || !userData.main_id) {
-    return interaction.reply("❌ You must register your main ID first")
-  }
+// Buscar SOLO dentro del grupo activo
+const users = await getUsers(activeRole)
+
+const userData = users[interaction.user.id]
+
+if (!userData) {
+  return interaction.reply({
+    content: `❌ You are not registered in ${activeRole}`,
+    flags: MessageFlags.Ephemeral
+  })
+}
+
+const group = activeRole
+
+
+if (!userData.main_id) {
+  return interaction.reply({
+    content: "❌ You must register your main ID first",
+    flags: MessageFlags.Ephemeral
+  })
+}
 
 await interaction.deferReply({ flags: MessageFlags.Ephemeral })
 
-//limite10
 
 const onlineUsers = await getOnlineUsersByGroup(group)
 
@@ -2139,48 +2155,91 @@ if (onlineUsers.length >= 10) {
   )
 }
 
-    
-const ok = await setOnlineStatus("online", userData.main_id, group);
+
+const ok = await setOnlineStatus(
+  "online",
+  userData.main_id,
+  group
+)
 
 if (!ok) {
-  return interaction.editReply("❌ Could not set main account online.");
+  return interaction.editReply("❌ Could not set main account online.")
 }
 
-return interaction.editReply("🟢 Main account set online. It now appears in /online_list.");
+
+return interaction.editReply(
+  `🟢 Main account set online in **${group}**.`
+)
+
 }
 
 
 //online sec
+//online sec
 if (interaction.commandName === "online_sec") {
+
  if (await isActiveRivalDuo(interaction)) {
   return interaction.reply({
     content: "❌ Rival Duo does not use secondary ID. Use /online instead.",
     flags: MessageFlags.Ephemeral
   })
+ }
+
+
+const group = await getUserGroup(interaction)
+
+if (!group) {
+  return interaction.reply({
+    content: "❌ No active group selected.",
+    flags: MessageFlags.Ephemeral
+  })
 }
 
-const found = await findUserEverywhere(interaction.user.id)
 
-if (!found) {
-  return interaction.reply("❌ You must register first")
+// Buscar SOLO en el grupo activo
+const users = await getUsers(group)
+const userData = users[interaction.user.id]
+
+
+if (!userData) {
+  return interaction.reply({
+    content: `❌ You are not registered in ${group}`,
+    flags: MessageFlags.Ephemeral
+  })
 }
 
-const group = found.group
-const userData = found.user
 
-  if (!userData || !userData.sec_id) {
-    return interaction.reply("❌ You must register your secondary ID first")
-  }
+if (!userData.sec_id) {
+  return interaction.reply({
+    content: "❌ You must register your secondary ID first",
+    flags: MessageFlags.Ephemeral
+  })
+}
 
-await interaction.deferReply({ flags: MessageFlags.Ephemeral })
 
-const ok = await setOnlineStatus("online", userData.sec_id, group);
+await interaction.deferReply({ 
+  flags: MessageFlags.Ephemeral 
+})
+
+
+const ok = await setOnlineStatus(
+  "online",
+  userData.sec_id,
+  group
+)
+
 
 if (!ok) {
-  return interaction.editReply("❌ Could not set secondary account online.");
+  return interaction.editReply(
+    "❌ Could not set secondary account online."
+  )
 }
 
-return interaction.editReply("🟢 Secondary account set online. It now appears in /online_list.");
+
+return interaction.editReply(
+  `🟢 Secondary account set online in **${group}**.`
+)
+
 }
 
 
@@ -2189,48 +2248,86 @@ return interaction.editReply("🟢 Secondary account set online. It now appears 
  
 
   // 🔹 OFFLINE
-  if (interaction.commandName === "offline") {
+// 🔹 OFFLINE
+if (interaction.commandName === "offline") {
 
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral })
-   const activeRole = await getUserGroup(interaction)
+await interaction.deferReply({
+  flags: MessageFlags.Ephemeral
+})
+
+
+const activeRole = await getUserGroup(interaction)
+
 
 if (activeRole === "Rival_Duo") {
-  const result = await setRivalDuoOffline(interaction.user.id, "manual_offline")
+
+  const result = await setRivalDuoOffline(
+    interaction.user.id,
+    "manual_offline"
+  )
 
   return interaction.editReply(result.message)
 }
 
-  // 🔎 Detectar grupo por rol
-const found = await findUserEverywhere(interaction.user.id)
 
-if (!found) {
-  return interaction.editReply("❌ You are not registered in your group")
+
+if (!activeRole) {
+  return interaction.editReply(
+    "❌ No active group selected."
+  )
 }
 
-const group = found.group
-const userData = found.user
 
-  if (!userData) {
-    return interaction.editReply("❌ You are not registered in your group")
-  }
+// Buscar SOLO en grupo activo
+const users = await getUsers(activeRole)
 
-  // 🌐 Llamar API con grupo
-let okMain = true;
-let okSec = true;
+const userData = users[interaction.user.id]
+
+
+if (!userData) {
+  return interaction.editReply(
+    `❌ You are not registered in ${activeRole}`
+  )
+}
+
+
+let okMain = true
+let okSec = true
+
 
 if (userData.main_id) {
-  okMain = await setOnlineStatus("offline", userData.main_id, group);
+
+  okMain = await setOnlineStatus(
+    "offline",
+    userData.main_id,
+    activeRole
+  )
+
 }
+
 
 if (userData.sec_id) {
-  okSec = await setOnlineStatus("offline", userData.sec_id, group);
+
+  okSec = await setOnlineStatus(
+    "offline",
+    userData.sec_id,
+    activeRole
+  )
+
 }
+
 
 if (!okMain || !okSec) {
-  return interaction.editReply("❌ Some IDs could not be updated.");
+  return interaction.editReply(
+    "❌ Some IDs could not be updated."
+  )
 }
 
-return interaction.editReply(`🔴 ${userData.name} is now OFFLINE in ${group}`);
+
+return interaction.editReply(
+  `🔴 ${userData.name} is now OFFLINE in **${activeRole}**`
+)
+
 }
  
 //SETOFFLINE
