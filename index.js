@@ -212,28 +212,28 @@ function isValidId(id) {
   return /^\d{16}$/.test(String(id).trim())
 }
 
-async function isGameIdAlreadyUsed(id, ignoreDiscordId = null) {
+async function isGameIdAlreadyUsed(id, group, ignoreDiscordId = null) {
   id = String(id).trim()
 
-  // usuarios normales
-  for (const group of Object.keys(GROUP_CONFIG)) {
-    const users = await getUsers(group)
+  const users = await getUsers(group)
 
-    for (const uid in users) {
-      if (ignoreDiscordId && uid === String(ignoreDiscordId)) {
-        continue
-      }
+  for (const uid in users) {
+    if (ignoreDiscordId && uid === String(ignoreDiscordId)) {
+      continue
+    }
 
-      const u = users[uid]
+    const u = users[uid]
 
-      if (
-        String(u.main_id || "").trim() === id ||
-        String(u.sec_id || "").trim() === id
-      ) {
-        return true
-      }
+    if (
+      String(u.main_id || "").trim() === id ||
+      String(u.sec_id || "").trim() === id
+    ) {
+      return true
     }
   }
+
+  return false
+}
 
   // rival duos
   const duos = await loadAllRivalDuos()
@@ -830,14 +830,7 @@ if (existing) {
     }
   }
 
-if (await isGameIdAlreadyUsed(gameId)) {
-  return {
-    ok: false,
-    message: "❌ This ID is already being used by another user."
-  }
-}
   
-
   let duo = null
 
   if (duoId) {
@@ -1155,12 +1148,7 @@ async function changeRivalDuoGameId(discordId, newGameId) {
       message: "❌ ID must be exactly 16 digits."
     }
   }
-  if (await isGameIdAlreadyUsed(newGameId, discordId)) {
-  return {
-    ok: false,
-    message: "❌ This ID is already being used by another user."
-  }
-}
+
 
   const duo = await getRivalDuoByUser(discordId)
 
@@ -1968,7 +1956,7 @@ if (interaction.commandName === "register") {
   if (!/^\d{16}$/.test(id)) {
     return interaction.reply("❌ ID must be 16 digits");
   }
-  if (await isGameIdAlreadyUsed(id)) {
+  if (await isGameIdAlreadyUsed(id, group)) {
   return interaction.reply("❌ This ID is already being used by another user.")
 }
 
@@ -2008,7 +1996,7 @@ if (!group) {
   if (!/^\d{16}$/.test(secId)) {
     return interaction.reply("❌ ID must be 16 digits")
   }
-  if (await isGameIdAlreadyUsed(secId)) {
+  if (await isGameIdAlreadyUsed(secId, group)) {
   return interaction.reply("❌ This ID is already being used by another user.")
 }
   
@@ -2046,9 +2034,11 @@ try {
     return interaction.editReply("❌ ID must be exactly 16 digits (numbers only)")
   }
 
-  if (await isGameIdAlreadyUsed(newId, interaction.user.id)) {
-    return interaction.editReply("❌ This ID is already being used by another user.")
-  }
+const group = await getUserGroup(interaction)
+
+if (await isGameIdAlreadyUsed(newId, group, interaction.user.id)) {
+  return interaction.editReply("❌ This ID is already being used by another user.")
+}
 
   const activeRole = await getUserGroup(interaction)
 
