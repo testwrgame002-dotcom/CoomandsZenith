@@ -235,29 +235,8 @@ async function isGameIdAlreadyUsed(id, group, ignoreDiscordId = null) {
   return false
 }
 
-  // rival duos
-  const duos = await loadAllRivalDuos()
 
-  for (const duo of Object.values(duos)) {
-    const members = getRivalDuoMembers(duo)
 
-    for (const member of members) {
-
-      if (
-        ignoreDiscordId &&
-        String(member.discordId) === String(ignoreDiscordId)
-      ) {
-        continue
-      }
-
-      if (String(member.gameId || "").trim() === id) {
-        return true
-      }
-    }
-  }
-
-  return false
-}
 
 async function getActiveRoles(userId) {
   try {
