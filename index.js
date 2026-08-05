@@ -2019,29 +2019,24 @@ if (await isGameIdAlreadyUsed(newId, group, interaction.user.id)) {
   return interaction.editReply("❌ This ID is already being used by another user.")
 }
 
-  const activeRole = await getUserGroup(interaction)
+// RIVAL DUO
+if (group === "Rival_Duo") {
 
-  // RIVAL DUO
-  if (activeRole === "Rival_Duo") {
+  const result = await changeRivalDuoGameId(
+    interaction.user.id,
+    newId
+  )
 
-    const result = await changeRivalDuoGameId(
-      interaction.user.id,
-      newId
-    )
+  return interaction.editReply(result.message)
+}
 
-    return interaction.editReply(result.message)
-  }
+let users = await getUsers(group)
 
-  // USAR ROL ACTIVO DIRECTAMENTE
-  const group = activeRole
+const userData = users[interaction.user.id]
 
-  let users = await getUsers(group)
-
-  const userData = users[interaction.user.id]
-
-  if (!userData) {
-    return interaction.editReply("❌ You must register first")
-  }
+if (!userData) {
+  return interaction.editReply("❌ You must register first")
+}
 
   // OFFLINE ID VIEJO
   if (userData.main_id) {
