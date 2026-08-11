@@ -352,22 +352,53 @@ function buildUserLabel(user, id) {
 }
 
 async function getOnlineUsersByGroup(group) {
-  // ===== AGREGAR RIVAL DUOS ACTIVOS =====
-  
   if (!GROUP_CONFIG[group]) return []
 
   const onlineIds = await getOnlineIDs(group)
+
   if (!onlineIds.length) return []
 
   const users = await getUsers(group)
   const results = []
 
+  // Obtener Rival Duos activos
+  const duos = await loadAllRivalDuos()
+
+  const activeDuoIds = new Map()
+
+  for (const duo of Object.values(duos)) {
+    if (!duo) continue
+
+    if (
+      duo.status === "online" &&
+      duo.activeGroup === group &&
+      duo.activeGameId
+    ) {
+      activeDuoIds.set(
+        String(duo.activeGameId),
+        duo
+      )
+    }
+  }
+
+  // Usuarios normales
   for (const id of onlineIds) {
+
+    // Si este ID pertenece a un Rival Duo,
+    // lo agregamos abajo como Duo.
+    if (activeDuoIds.has(String(id))) {
+      continue
+    }
+
     let foundUser = null
 
     for (const uid in users) {
       const u = users[uid]
-      if (u.main_id === id || u.sec_id === id) {
+
+      if (
+        u.main_id === id ||
+        u.sec_id === id
+      ) {
         foundUser = u
         break
       }
@@ -376,7 +407,27 @@ async function getOnlineUsersByGroup(group) {
     results.push({
       id,
       label: buildUserLabel(foundUser, id),
-      user: foundUser
+      user: foundUser,
+      duoId: null
+    })
+  }
+
+  // Rival Duos
+  for (const [id, duo] of activeDuoIds.entries()) {
+
+    const activeMember = getRivalDuoMember(
+      duo,
+      duo.activeDiscordId
+    )
+
+    results.push({
+      id,
+      label:
+        `🤝 Rival Duo: ${displayRivalDuoName(duo)}`,
+      user: null,
+      duoId: duo.id,
+      duo: true,
+      activeMember
     })
   }
 
@@ -840,21 +891,29 @@ if (existing) {
       }
     }
   } else {
-    duo = {
-      id: createRivalDuoId(),
-      createdAt: rivalNow(),
-      members: {},
-      onlineUsers: {},
-      activeGameId: null,
-      activeDiscordId: null,
-      activeIndex: 0,
-      lastRotationAt: 0,
-      lastHeartbeatAt: {},
-      lastHeartbeatStats: {},
-      status: "waiting",
-      offlineReason: null,
-      offlineAt: null
-    }
+duo = {
+  id: createRivalDuoId(),
+  createdAt: rivalNow(),
+  members: {},
+  onlineUsers: {},
+
+  // ===== GROUP SELECTION =====
+  groupSelections: {},
+  activeGroup: null,
+
+  // ===== ACTIVE REROLL =====
+  activeGameId: null,
+  activeDiscordId: null,
+  activeIndex: 0,
+  lastRotationAt: 0,
+
+  lastHeartbeatAt: {},
+  lastHeartbeatStats: {},
+
+  status: "waiting",
+  offlineReason: null,
+  offlineAt: null
+}
   }
 
   duo.members[discordId] = {
@@ -919,91 +978,321 @@ async function removeRivalDuoIdsFromElite(duo) {
   await redis.srem("online:Elite_Four", ...ids)
 }
 
-async function activateRivalDuoId(duo, force = false) {
+function ensureRivalDuoGroupState(duo) {
+  if (!duo.groupSelections || typeof duo.groupSelections !== "object") {
+    duo.groupSelections = {}
+  }
+
+  if (!duo.activeGroup) {
+    duo.activeGroup = null
+  }
+
+  return duo
+}
+
+
+async function removeRivalDuoIdsFromGroups(duo) {
+  const ids = getRivalDuoMembers(duo)
+    .map(m => String(m.gameId || "").trim())
+    .filter(isValidGameId)
+
+  if (!ids.length) return
+
+  await redis.srem("online:Elite_Four", ...ids)
+  await redis.srem("online:Gym_Leader", ...ids)
+}
+
+
+async function getRivalDuoSelectedGroup(duo) {
+  ensureRivalDuoGroupState(duo)
+
   const members = getRivalDuoMembers(duo)
 
   if (members.length < 2) {
-    await removeRivalDuoIdsFromElite(duo)
+    return {
+      ok: false,
+      reason: "waiting_partner"
+    }
+  }
+
+  const firstGroup = duo.groupSelections[members[0].discordId]
+  const secondGroup = duo.groupSelections[members[1].discordId]
+
+  if (!firstGroup || !secondGroup) {
+    return {
+      ok: false,
+      reason: "waiting_selection"
+    }
+  }
+
+  if (firstGroup !== secondGroup) {
+    return {
+      ok: false,
+      reason: "selection_mismatch",
+      firstGroup,
+      secondGroup
+    }
+  }
+
+  return {
+    ok: true,
+    group: firstGroup
+  }
+}
+
+
+async function getOnlineUserCountExcludingDuo(group, duoId = null) {
+  const onlineUsers = await getOnlineUsersByGroup(group)
+
+  return onlineUsers.filter(user => {
+    if (!duoId) return true
+    return user.duoId !== duoId
+  }).length
+}
+
+
+function buildRivalDuoGroupMenu(duo, discordId) {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`rival_duo_group_select_${duo.id}_${discordId}`)
+    .setPlaceholder("Select the group for your Rival Duo")
+    .addOptions([
+      {
+        label: "Elite Four",
+        description: "Join the Elite Four group",
+        value: "Elite_Four"
+      },
+      {
+        label: "Gym Leader",
+        description: "Join the Gym Leader group",
+        value: "Gym_Leader"
+      }
+    ])
+
+  return new ActionRowBuilder().addComponents(menu)
+}
+
+async function activateRivalDuoId(duo, force = false) {
+  ensureRivalDuoGroupState(duo)
+
+  const members = getRivalDuoMembers(duo)
+
+  if (members.length < 2) {
+    await removeRivalDuoIdsFromGroups(duo)
+
     duo.activeGameId = null
     duo.activeDiscordId = null
+    duo.activeGroup = null
     duo.status = "waiting_partner"
+
     await saveRivalDuo(duo)
-    return { ok: false, waiting: true, message: "⏳ Waiting for reroll partner." }
+
+    return {
+      ok: false,
+      waiting: true,
+      message: "⏳ Waiting for reroll partner."
+    }
   }
 
   if (!duo.onlineUsers || typeof duo.onlineUsers !== "object") {
     duo.onlineUsers = {}
   }
 
-  const allOnline = members.every(member => duo.onlineUsers[member.discordId] === true)
+  const allOnline = members.every(
+    member => duo.onlineUsers[member.discordId] === true
+  )
 
   if (!allOnline) {
-    await removeRivalDuoIdsFromElite(duo)
+    await removeRivalDuoIdsFromGroups(duo)
+
     duo.activeGameId = null
     duo.activeDiscordId = null
+    duo.activeGroup = null
     duo.status = "offline"
+
     await saveRivalDuo(duo)
-    return { ok: false, waiting: false, message: "🔴 Rival Duo offline." }
+
+    return {
+      ok: false,
+      waiting: false,
+      message: "🔴 Rival Duo offline."
+    }
   }
 
-  const now = rivalNow()
-  const shouldRotate = force || !duo.lastRotationAt || now - Number(duo.lastRotationAt || 0) >= RIVAL_DUO_ROTATION_MS
+  // =====================================================
+  // BOTH MEMBERS MUST SELECT THE SAME GROUP
+  // =====================================================
 
-  if (!duo.activeGameId || shouldRotate) {
-    if (!duo.cededUsers) duo.cededUsers = {};
+  const selection = await getRivalDuoSelectedGroup(duo)
 
-    let index = Number(duo.activeIndex || 0) % members.length
-    let activeMember = members[index]
+  if (!selection.ok) {
 
-    // Si el miembro elegido cedió su reroll, pasamos al siguiente automáticamente
-    if (duo.cededUsers[activeMember.discordId] === true) {
-      index = (index + 1) % members.length
-      activeMember = members[index]
-      
-      // Control de seguridad: Si AMBOS cedieron el reroll
-      if (duo.cededUsers[activeMember.discordId] === true) {
-        await removeRivalDuoIdsFromElite(duo)
-        duo.activeGameId = null
-        duo.activeDiscordId = null
-        duo.status = "idle"
-        await saveRivalDuo(duo)
-        return { ok: false, waiting: false, message: "⚫ Both members have yielded their reroll. Duo is idle." }
+    if (selection.reason === "waiting_selection") {
+      duo.activeGameId = null
+      duo.activeDiscordId = null
+      duo.activeGroup = null
+      duo.status = "waiting_selection"
+
+      await removeRivalDuoIdsFromGroups(duo)
+      await saveRivalDuo(duo)
+
+      return {
+        ok: false,
+        waiting: true,
+        message:
+          "⏳ Both members must select the same group.\n" +
+          "Please use `/online` and select **Elite Four** or **Gym Leader**."
       }
     }
 
-    await removeRivalDuoIdsFromElite(duo)
+    if (selection.reason === "selection_mismatch") {
+      duo.activeGameId = null
+      duo.activeDiscordId = null
+      duo.activeGroup = null
+      duo.status = "selection_mismatch"
+
+      await removeRivalDuoIdsFromGroups(duo)
+      await saveRivalDuo(duo)
+
+      return {
+        ok: false,
+        waiting: true,
+        message:
+          "⚠️ Your Rival Duo members selected different groups.\n" +
+          "Both members must select the **same group**."
+      }
+    }
+  }
+
+  const selectedGroup = selection.group
+
+  // =====================================================
+  // CHECK GROUP CAPACITY
+  // =====================================================
+
+  const onlineCount = await getOnlineUserCountExcludingDuo(
+    selectedGroup,
+    duo.id
+  )
+
+  if (onlineCount >= 10) {
+
+    await removeRivalDuoIdsFromGroups(duo)
+
+    duo.activeGameId = null
+    duo.activeDiscordId = null
+    duo.activeGroup = selectedGroup
+    duo.status = "waiting_capacity"
+
+    await saveRivalDuo(duo)
+
+    return {
+      ok: false,
+      waiting: true,
+      full: true,
+      group: selectedGroup,
+      message:
+        `⚠️ The **${getGroupLabel(selectedGroup)}** group is currently full ` +
+        `(**10/10**).\n` +
+        `Your Rival Duo remains **online** and will stay waiting for a free slot.`
+    }
+  }
+
+  // =====================================================
+  // NORMAL HOURLY ROTATION
+  // =====================================================
+
+  const now = rivalNow()
+
+  const shouldRotate =
+    force ||
+    !duo.lastRotationAt ||
+    now - Number(duo.lastRotationAt || 0) >= RIVAL_DUO_ROTATION_MS
+
+  if (!duo.activeGameId || shouldRotate) {
+
+    if (!duo.cededUsers) {
+      duo.cededUsers = {}
+    }
+
+    let index =
+      Number(duo.activeIndex || 0) % members.length
+
+    let activeMember = members[index]
+
+    // Si el miembro elegido cedió su reroll,
+    // pasamos automáticamente al otro.
+    if (duo.cededUsers[activeMember.discordId] === true) {
+
+      index = (index + 1) % members.length
+      activeMember = members[index]
+
+      // Ambos cedieron
+      if (duo.cededUsers[activeMember.discordId] === true) {
+
+        await removeRivalDuoIdsFromGroups(duo)
+
+        duo.activeGameId = null
+        duo.activeDiscordId = null
+        duo.activeGroup = selectedGroup
+        duo.status = "idle"
+
+        await saveRivalDuo(duo)
+
+        return {
+          ok: false,
+          waiting: false,
+          message:
+            "⚫ Both members have yielded their reroll. Duo is idle."
+        }
+      }
+    }
+
+    await removeRivalDuoIdsFromGroups(duo)
 
     duo.activeGameId = activeMember.gameId
     duo.activeDiscordId = activeMember.discordId
+    duo.activeGroup = selectedGroup
     duo.lastRotationAt = now
     duo.activeIndex = (index + 1) % members.length
     duo.status = "online"
 
-    await redis.sadd("online:Elite_Four", activeMember.gameId)
+    await redis.sadd(
+      onlineKey(selectedGroup),
+      activeMember.gameId
+    )
+
     await saveRivalDuo(duo)
 
     return {
       ok: true,
       waiting: false,
       message:
-        `🟢 Rival Duo online in Elite Four.\n` +
+        `🟢 Rival Duo online in **${getGroupLabel(selectedGroup)}**.\n` +
         `Active ID: **${activeMember.gameId}**\n` +
         `Active user: <@${activeMember.discordId}>`
     }
   }
 
-  if (duo.activeGameId) {
-    await redis.sadd("online:Elite_Four", duo.activeGameId)
+  // =====================================================
+  // ALREADY ONLINE
+  // =====================================================
+
+  if (duo.activeGameId && duo.activeGroup) {
+    await redis.sadd(
+      onlineKey(duo.activeGroup),
+      duo.activeGameId
+    )
   }
 
   duo.status = "online"
+
   await saveRivalDuo(duo)
 
   return {
     ok: true,
     waiting: false,
     message:
-      `🟢 Rival Duo already online.\n` +
+      `🟢 Rival Duo already online in **${getGroupLabel(duo.activeGroup)}**.\n` +
       `Active ID: **${duo.activeGameId}**\n` +
       `Active user: <@${duo.activeDiscordId}>`
   }
@@ -1011,47 +1300,159 @@ async function activateRivalDuoId(duo, force = false) {
 
 async function setRivalDuoOnline(discordId) {
   discordId = String(discordId)
+
   const allDuos = await loadAllRivalDuos()
-  const messages = []
-  let found = false
+
+  let foundDuo = null
 
   for (const duoId in allDuos) {
     const duo = allDuos[duoId]
+
     if (!duo || !duo.members) continue
     if (!duo.members[discordId]) continue
 
-    found = true
+    foundDuo = duo
+    break
+  }
 
-    if (!duo.onlineUsers || typeof duo.onlineUsers !== "object") {
-      duo.onlineUsers = {}
+  if (!foundDuo) {
+    return {
+      ok: false,
+      message: "❌ You are not registered in any Rival Duo."
     }
+  }
 
-    duo.onlineUsers[discordId] = true
+  ensureRivalDuoGroupState(foundDuo)
 
-    const members = getRivalDuoMembers(duo)
-    const allOnline = members.every(member => duo.onlineUsers?.[member.discordId] === true)
+  if (!foundDuo.onlineUsers || typeof foundDuo.onlineUsers !== "object") {
+    foundDuo.onlineUsers = {}
+  }
 
-    if (allOnline) {
-      duo.status = "online"
+  foundDuo.onlineUsers[discordId] = true
+
+  await saveRivalDuo(foundDuo)
+
+  return {
+    ok: true,
+    duo: foundDuo,
+    message:
+      `🤝 **${displayRivalDuoName(foundDuo)}**\n` +
+      `You are now marked as **online**.\n\n` +
+      `Select the group where both members want to reroll.`
+  }
+}
+async function selectRivalDuoGroup(discordId, selectedGroup) {
+  discordId = String(discordId)
+
+  if (!["Elite_Four", "Gym_Leader"].includes(selectedGroup)) {
+    return {
+      ok: false,
+      message: "❌ Invalid Rival Duo group."
     }
-    
+  }
+
+  const duo = await getRivalDuoByUser(discordId)
+
+  if (!duo) {
+    return {
+      ok: false,
+      message: "❌ You are not registered in any Rival Duo."
+    }
+  }
+
+  ensureRivalDuoGroupState(duo)
+
+  const members = getRivalDuoMembers(duo)
+
+  if (members.length < 2) {
+    return {
+      ok: false,
+      message: "⏳ Your Rival Duo is still waiting for its second member."
+    }
+  }
+
+  if (!duo.onlineUsers || typeof duo.onlineUsers !== "object") {
+    duo.onlineUsers = {}
+  }
+
+  if (duo.onlineUsers[discordId] !== true) {
+    return {
+      ok: false,
+      message: "❌ You must use `/online` first."
+    }
+  }
+
+  // Guardar la selección de este usuario
+  duo.groupSelections[discordId] = selectedGroup
+
+  await saveRivalDuo(duo)
+
+  const otherMember = members.find(
+    member => String(member.discordId) !== discordId
+  )
+
+  const otherSelection =
+    otherMember
+      ? duo.groupSelections[otherMember.discordId]
+      : null
+
+  // =====================================================
+  // PARTNER HAS NOT SELECTED YET
+  // =====================================================
+
+  if (!otherSelection) {
+    return {
+      ok: true,
+      waiting: true,
+      duo,
+      message:
+        `✅ You selected **${getGroupLabel(selectedGroup)}**.\n\n` +
+        `⏳ Waiting for your partner to select a group.`
+    }
+  }
+
+  // =====================================================
+  // DIFFERENT GROUPS
+  // =====================================================
+
+  if (otherSelection !== selectedGroup) {
+
+    duo.activeGameId = null
+    duo.activeDiscordId = null
+    duo.activeGroup = null
+    duo.status = "selection_mismatch"
+
+    await removeRivalDuoIdsFromGroups(duo)
     await saveRivalDuo(duo)
 
-    // Si el usuario actual cedió su reroll y el compañero ya está online, forzamos que se mantenga el compañero
-    const forceRotation = duo.cededUsers?.[discordId] === true && String(duo.activeDiscordId) === discordId;
-    const result = await activateRivalDuoId(duo, forceRotation)
-
-    messages.push(
-      `🤝 **${displayRivalDuoName(duo)}**\n${result.message}`
-    )
+    return {
+      ok: true,
+      mismatch: true,
+      duo,
+      message:
+        `⚠️ **Group selection mismatch.**\n\n` +
+        `You selected **${getGroupLabel(selectedGroup)}**.\n` +
+        `Your partner selected **${getGroupLabel(otherSelection)}**.\n\n` +
+        `Both members must select the **same group**.\n` +
+        `Use \`/online\` again to select the correct group.`
+    }
   }
 
-  if (!found) {
-    return { ok: false, message: "❌ You are not registered in any Rival Duo." }
-  }
+  // =====================================================
+  // BOTH SELECTED THE SAME GROUP
+  // =====================================================
 
-  return { ok: true, message: messages.join("\n\n") }
+  const result = await activateRivalDuoId(duo, true)
+
+  return {
+    ok: result.ok,
+    waiting: result.waiting,
+    full: result.full || false,
+    duo,
+    message: result.message
+  }
 }
+
 
 async function setRivalDuoOffline(discordId, reason = "offline") {
   discordId = String(discordId)
@@ -1068,7 +1469,7 @@ async function setRivalDuoOffline(discordId, reason = "offline") {
 
     found = true
 
-    await removeRivalDuoIdsFromElite(duo)
+    await removeRivalDuoIdsFromGroups(duo)
 
 if (!duo.onlineUsers || typeof duo.onlineUsers !== "object") {
   duo.onlineUsers = {}
@@ -1079,9 +1480,17 @@ duo.onlineUsers[discordId] = false
 const member = duo.members[discordId]
 
 if (member?.gameId) {
-  await redis.srem("online:Elite_Four", member.gameId)
+  await redis.srem(
+    "online:Elite_Four",
+    member.gameId
+  )
+
+  await redis.srem(
+    "online:Gym_Leader",
+    member.gameId
+  )
 }
-    
+ duo.activeGroup = null   
 duo.activeGameId = null
 duo.activeDiscordId = null
 duo.status = "offline"
@@ -1111,7 +1520,12 @@ async function tickRivalDuoRotation() {
 
   for (const duo of Object.values(duos)) {
     if (!duo) continue
-    if (duo.status !== "online") continue
+
+    if (
+      !["online", "waiting_capacity"].includes(duo.status)
+    ) {
+      continue
+    }
 
     await activateRivalDuoId(duo, false)
   }
@@ -1158,6 +1572,7 @@ async function changeRivalDuoGameId(discordId, newGameId) {
 
   if (oldGameId && isValidGameId(oldGameId)) {
     await redis.srem("online:Elite_Four", oldGameId)
+await redis.srem("online:Gym_Leader", oldGameId)
 
     if (typeof redis.hdel === "function") {
       await redis.hdel(RIVAL_DUO_BY_GAMEID_KEY, oldGameId)
@@ -1185,9 +1600,15 @@ async function changeRivalDuoGameId(discordId, newGameId) {
     duo.activeGameId = newGameId
     duo.lastRotationAt = rivalNow()
 
-    if (duo.status === "online") {
-      await redis.sadd("online:Elite_Four", newGameId)
-    }
+if (
+  duo.status === "online" &&
+  duo.activeGroup
+) {
+  await redis.sadd(
+    onlineKey(duo.activeGroup),
+    newGameId
+  )
+}
   }
 
   await saveRivalDuo(duo)
@@ -1628,7 +2049,152 @@ await redis.set(
     flags: MessageFlags.Ephemeral
   })
 }
+// =====================================================
+// RIVAL DUO GROUP SELECTION
+// =====================================================
 
+if (
+  interaction.isStringSelectMenu() &&
+  interaction.customId.startsWith("rival_duo_group_select_")
+) {
+
+  const parts = interaction.customId.split("_")
+
+  // Formato:
+  // rival_duo_group_select_DUOID_DISCORDID
+  const discordId = parts.pop()
+  const duoId = parts.slice(4).join("_")
+
+  if (String(interaction.user.id) !== String(discordId)) {
+    return interaction.reply({
+      content: "❌ This menu is not for you.",
+      flags: MessageFlags.Ephemeral
+    })
+  }
+
+  const selectedGroup = interaction.values[0]
+
+  const duo = await getRivalDuoById(duoId)
+
+  if (!duo) {
+    return interaction.update({
+      content:
+        "❌ This Rival Duo no longer exists.",
+      components: []
+    })
+  }
+
+  if (!duo.members?.[discordId]) {
+    return interaction.update({
+      content:
+        "❌ You are not a member of this Rival Duo.",
+      components: []
+    })
+  }
+
+  const result = await selectRivalDuoGroup(
+    discordId,
+    selectedGroup
+  )
+
+  if (!result.ok) {
+    return interaction.update({
+      content: result.message,
+      components: []
+    })
+  }
+
+  // ===================================================
+  // WAITING FOR PARTNER
+  // ===================================================
+
+  if (result.waiting) {
+    return interaction.update({
+      content: result.message,
+      components: []
+    })
+  }
+
+  // ===================================================
+  // MISMATCH
+  // ===================================================
+
+  if (result.mismatch) {
+
+    // Intentar avisar también al otro miembro
+    const members = getRivalDuoMembers(result.duo)
+
+    for (const member of members) {
+      try {
+
+        const discordUser =
+          await client.users.fetch(member.discordId)
+
+        await discordUser.send(
+          `⚠️ **Rival Duo group selection mismatch.**\n\n` +
+          `${displayRivalDuoName(result.duo)}\n\n` +
+          `Both members must select the same group.\n` +
+          `Use \`/online\` again to select the correct group.`
+        )
+
+      } catch (err) {
+        console.warn(
+          `Could not DM Rival Duo member ${member.discordId}:`,
+          err.message
+        )
+      }
+    }
+
+    return interaction.update({
+      content: result.message,
+      components: []
+    })
+  }
+
+  // ===================================================
+  // GROUP FULL
+  // ===================================================
+
+  if (result.full) {
+
+    const members = getRivalDuoMembers(result.duo)
+
+    for (const member of members) {
+      try {
+
+        const discordUser =
+          await client.users.fetch(member.discordId)
+
+        await discordUser.send(
+          `⚠️ **Rival Duo could not enter ${getGroupLabel(selectedGroup)}.**\n\n` +
+          `The group is currently full (**10/10**).\n\n` +
+          `Your Rival Duo remains **online** and will wait for a free slot.\n` +
+          `You can also use \`/online\` again to select another group.`
+        )
+
+      } catch (err) {
+        console.warn(
+          `Could not DM Rival Duo member ${member.discordId}:`,
+          err.message
+        )
+      }
+    }
+
+    return interaction.update({
+      content: result.message,
+      components: []
+    })
+  }
+
+  // ===================================================
+  // SUCCESS
+  // ===================================================
+
+  return interaction.update({
+    content: result.message,
+    components: []
+  })
+}
   if (interaction.isStringSelectMenu() && interaction.customId.startsWith("rival_duo_select_")) {
   const targetUserId = interaction.customId.replace("rival_duo_select_", "")
 
@@ -2107,11 +2673,29 @@ if (interaction.commandName === "online") {
 const activeRole = await getUserGroup(interaction)
 
 if (activeRole === "Rival_Duo") {
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral })
+  await interaction.deferReply({
+    flags: MessageFlags.Ephemeral
+  })
 
-  const result = await setRivalDuoOnline(interaction.user.id)
+  const result = await setRivalDuoOnline(
+    interaction.user.id
+  )
 
-  return interaction.editReply(result.message)
+  if (!result.ok) {
+    return interaction.editReply(result.message)
+  }
+
+  return interaction.editReply({
+    content:
+      result.message +
+      "\n\n**Both members must select the same group.**",
+    components: [
+      buildRivalDuoGroupMenu(
+        result.duo,
+        interaction.user.id
+      )
+    ]
+  })
 }
 
 if (!activeRole) {
