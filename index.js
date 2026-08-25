@@ -2167,7 +2167,7 @@ if (
 
         await discordUser.send(
           `⚠️ **Rival Duo could not enter ${getGroupLabel(selectedGroup)}.**\n\n` +
-          `The group is currently full (**10/10**).\n\n` +
+          `The group is currently full (**25/25**).\n\n` +
           `Your Rival Duo remains **online** and will wait for a free slot.\n` +
           `You can also use \`/online\` again to select another group.`
         )
@@ -2733,7 +2733,7 @@ await interaction.deferReply({ flags: MessageFlags.Ephemeral })
 
 const onlineUsers = await getOnlineUsersByGroup(group)
 
-if (onlineUsers.length >= 10) {
+if (onlineUsers.length >= 25) {
   return interaction.editReply(
     `❌ The **${group}** group already has the maximum of **10** users online.`
   )
