@@ -31,7 +31,8 @@ const TOKEN = process.env.TOKEN
 
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN
+  token: process.env.UPSTASH_REDIS_REST_TOKEN,
+    automaticDeserialization: false
 })
 
 
@@ -74,14 +75,30 @@ function historyKey() {
 }
 
 function safeJsonParse(value, fallback = {}) {
-  try {
-    if (!value) return fallback
-    if (typeof value === "object") return value
-    return JSON.parse(value)
-  } catch {
-    return fallback
+  let v = value
+
+  for (let i = 0; i < 3; i++) {
+    if (v === null || v === undefined || v === "") return fallback
+    if (typeof v === "object") return v
+    if (typeof v !== "string") return fallback
+
+    const s = v
+      .trim()
+      .replace(/^\uFEFF/, "")
+      .replace(/[“”]/g, '"')
+      .replace(/,\s*$/, "")
+
+    try {
+      v = JSON.parse(s)
+    } catch {
+      console.error("❌ JSON ilegible en Redis:", s.slice(0, 200))
+      return fallback
+    }
   }
+
+  return typeof v === "object" ? v : fallback
 }
+
 function uniqueList(arr) {
   return [...new Set(
     arr
@@ -312,13 +329,13 @@ async function getUserGroup(interaction) {
 }
 
 async function isActiveRivalDuo(interaction) {
- const selected = await getActiveRoles(interaction.user.id)
-
   const hasRivalDuoRole = interaction.member.roles.cache.some(role =>
     role.name === "Rival_Duo" || role.name === "Rival Duo"
   )
 
-  return hasRivalDuoRole && selected === "Rival_Duo"
+  if (!hasRivalDuoRole) return false
+
+  return (await getUserGroup(interaction)) === "Rival_Duo"
 }
 
 async function getOnlineIDs(group) {
@@ -457,49 +474,58 @@ async function saveSchedules(data) {
 
 function startDailyScheduler() {
   setInterval(async () => {
-    const schedules = await loadSchedules();
-    const now = new Date();
+    try {
+      const schedules = await loadSchedules()
+      const now = new Date()
 
-    const utcHour = now.getUTCHours();
-    const utcMinute = now.getUTCMinutes();
-    const todayUTC = now.toISOString().slice(0, 10);
+      const utcHour = now.getUTCHours()
+      const utcMinute = now.getUTCMinutes()
+      const todayUTC = now.toISOString().slice(0, 10)
 
-    for (const userId in schedules) {
-      const data = schedules[userId];
-      if (!data.group || !data.main_id) continue;
+      let changed = false
 
-      // ONLINE
-      if (
-        data.online_hour === utcHour &&
-        data.online_minute === utcMinute &&
-        data.last_online !== todayUTC
-      ) {
-        const ok = await setOnlineStatus("online", data.main_id, data.group);
+      for (const userId in schedules) {
+        const data = schedules[userId]
+        if (!data.group || !data.main_id) continue
 
-        if (ok) {
-          data.last_online = todayUTC;
-          console.log("🟢 Daily ONLINE ejecutado:", data.main_id);
+        // ONLINE
+        if (
+          data.online_hour === utcHour &&
+          data.online_minute === utcMinute &&
+          data.last_online !== todayUTC
+        ) {
+          const ok = await setOnlineStatus("online", data.main_id, data.group)
+
+          if (ok) {
+            data.last_online = todayUTC
+            changed = true
+            console.log("🟢 Daily ONLINE ejecutado:", data.main_id)
+          }
+        }
+
+        // OFFLINE
+        if (
+          data.offline_hour === utcHour &&
+          data.offline_minute === utcMinute &&
+          data.last_offline !== todayUTC
+        ) {
+          const ok = await setOnlineStatus("offline", data.main_id, data.group)
+
+          if (ok) {
+            data.last_offline = todayUTC
+            changed = true
+            console.log("🔴 Daily OFFLINE ejecutado:", data.main_id)
+          }
         }
       }
 
-      // OFFLINE
-      if (
-        data.offline_hour === utcHour &&
-        data.offline_minute === utcMinute &&
-        data.last_offline !== todayUTC
-      ) {
-        const ok = await setOnlineStatus("offline", data.main_id, data.group);
+      // solo guarda si algo cambió
+      if (changed) await saveSchedules(schedules)
 
-        if (ok) {
-          data.last_offline = todayUTC;
-          console.log("🔴 Daily OFFLINE ejecutado:", data.main_id);
-        }
-      }
+    } catch (err) {
+      console.error("Scheduler error:", err)
     }
-
-    await saveSchedules(schedules);
-  }, 10 * 1000);
-  //}, 60 * 1000);
+  }, 60 * 1000)
 }
 
 
@@ -556,6 +582,28 @@ async function setOnlineStatus(action, id, group) {
 }
 
 
+function normalizeUser(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+
+  const cleanId = v => {
+    const s = String(v ?? "").replace(/\s+/g, "").trim()
+    return s || null
+  }
+
+  const name = String(raw.name ?? "").trim() || "Unknown"
+
+  return {
+    ...raw,
+    name,
+    heartbeatName: String(raw.heartbeatName ?? "").trim() || name,
+    aliases: Array.isArray(raw.aliases)
+      ? uniqueList(raw.aliases)
+      : uniqueList([name]),
+    main_id: cleanId(raw.main_id ?? raw.mainId),
+    sec_id: cleanId(raw.sec_id ?? raw.secId)
+  }
+}
+
 async function getUsers(group) {
   try {
     if (!GROUP_CONFIG[group]) {
@@ -564,15 +612,20 @@ async function getUsers(group) {
     }
 
     const data = await redis.hgetall(usersKey(group))
-
-    if (!data || typeof data !== "object") {
-      return {}
-    }
+    if (!data || typeof data !== "object") return {}
 
     const users = {}
 
     for (const uid in data) {
-      users[uid] = safeJsonParse(data[uid], {})
+      const user = normalizeUser(safeJsonParse(data[uid], null))
+
+      if (!user) {
+        // se omite y NO se reescribe, así el registro original queda intacto en Redis
+        console.error(`⚠️ Registro inválido: ${usersKey(group)} -> ${uid}`, data[uid])
+        continue
+      }
+
+      users[String(uid).trim()] = user
     }
 
     return users
@@ -582,6 +635,22 @@ async function getUsers(group) {
   }
 }
 
+async function findUserFlexible(discordId, preferredGroup = null) {
+  const all = Object.keys(GROUP_CONFIG)
+
+  const groups = (preferredGroup && GROUP_CONFIG[preferredGroup])
+    ? [preferredGroup, ...all.filter(g => g !== preferredGroup)]
+    : all
+
+  for (const group of groups) {
+    const users = await getUsers(group)
+    const userData = users[String(discordId)]
+
+    if (userData) return { group, userData, users }
+  }
+
+  return null
+}
 async function findUserEverywhere(discordId) {
 
   for (const group of Object.keys(GROUP_CONFIG)) {
@@ -677,13 +746,7 @@ function isValidGameId(id) {
 }
 
 function parseRivalJson(value, fallback = {}) {
-  try {
-    if (!value) return fallback
-    if (typeof value === "object") return value
-    return JSON.parse(value)
-  } catch {
-    return fallback
-  }
+  return safeJsonParse(value, fallback)
 }
 
 function getRivalDuoMembers(duo) {
@@ -756,21 +819,30 @@ async function getRivalDuoById(duoId) {
 }
 
 async function getRivalDuoByUser(discordId) {
+  discordId = String(discordId)
+
   try {
-    const raw = await redis.hget(RIVAL_DUO_BY_USER_KEY, String(discordId))
-
-    if (!raw) return null
-
+    const raw = await redis.hget(RIVAL_DUO_BY_USER_KEY, discordId)
     const ref = parseRivalJson(raw, null)
 
-    if (!ref?.duoId) return null
-
-    return await getRivalDuoById(ref.duoId)
+    if (ref?.duoId) {
+      const duo = await getRivalDuoById(ref.duoId)
+      if (duo?.members?.[discordId]) return duo
+    }
   } catch (err) {
-    console.error("Error loading rival duo by user:", err)
-    return null
+    console.error("Error loading rival duo by user index:", err)
   }
+
+  // fallback: escanear todos
+  const duos = await loadAllRivalDuos()
+
+  for (const duo of Object.values(duos)) {
+    if (duo?.members?.[discordId]) return duo
+  }
+
+  return null
 }
+
 async function getAllRivalDuosByUser(discordId) {
   const duos = await loadAllRivalDuos()
   const found = []
@@ -2701,18 +2773,16 @@ if (!activeRole) {
 
 
 // Buscar SOLO dentro del grupo activo
-const users = await getUsers(activeRole)
+const found = await findUserFlexible(interaction.user.id, activeRole)
 
-const userData = users[interaction.user.id]
-
-if (!userData) {
+if (!found) {
   return interaction.reply({
-    content: `❌ You are not registered in ${activeRole}`,
+    content: "❌ You are not registered yet. Use /register first.",
     flags: MessageFlags.Ephemeral
   })
 }
 
-const group = activeRole
+const { userData, group } = found
 
 
 if (!userData.main_id) {
@@ -2756,68 +2826,49 @@ return interaction.editReply(
 //online sec
 if (interaction.commandName === "online_sec") {
 
- if (await isActiveRivalDuo(interaction)) {
-  return interaction.reply({
-    content: "❌ Rival Duo does not use secondary ID. Use /online instead.",
-    flags: MessageFlags.Ephemeral
-  })
- }
+  if (await isActiveRivalDuo(interaction)) {
+    return interaction.reply({
+      content: "❌ Rival Duo does not use secondary ID. Use /online instead.",
+      flags: MessageFlags.Ephemeral
+    })
+  }
 
+  const activeRole = await getUserGroup(interaction)
 
-const group = await getUserGroup(interaction)
+  if (!activeRole) {
+    return interaction.reply({
+      content: "❌ No active group selected.",
+      flags: MessageFlags.Ephemeral
+    })
+  }
 
-if (!group) {
-  return interaction.reply({
-    content: "❌ No active group selected.",
-    flags: MessageFlags.Ephemeral
-  })
-}
+  const found = await findUserFlexible(interaction.user.id, activeRole)
 
+  if (!found) {
+    return interaction.reply({
+      content: "❌ You are not registered yet. Use /register first.",
+      flags: MessageFlags.Ephemeral
+    })
+  }
 
-// Buscar SOLO en el grupo activo
-const users = await getUsers(group)
-const userData = users[interaction.user.id]
+  const { userData, group } = found
 
+  if (!userData.sec_id) {
+    return interaction.reply({
+      content: "❌ You must register your secondary ID first",
+      flags: MessageFlags.Ephemeral
+    })
+  }
 
-if (!userData) {
-  return interaction.reply({
-    content: `❌ You are not registered in ${group}`,
-    flags: MessageFlags.Ephemeral
-  })
-}
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral })
 
+  const ok = await setOnlineStatus("online", userData.sec_id, group)
 
-if (!userData.sec_id) {
-  return interaction.reply({
-    content: "❌ You must register your secondary ID first",
-    flags: MessageFlags.Ephemeral
-  })
-}
+  if (!ok) {
+    return interaction.editReply("❌ Could not set secondary account online.")
+  }
 
-
-await interaction.deferReply({ 
-  flags: MessageFlags.Ephemeral 
-})
-
-
-const ok = await setOnlineStatus(
-  "online",
-  userData.sec_id,
-  group
-)
-
-
-if (!ok) {
-  return interaction.editReply(
-    "❌ Could not set secondary account online."
-  )
-}
-
-
-return interaction.editReply(
-  `🟢 Secondary account set online in **${group}**.`
-)
-
+  return interaction.editReply(`🟢 Secondary account set online in **${group}**.`)
 }
 
 
@@ -2857,53 +2908,31 @@ if (!activeRole) {
 
 
 // Buscar SOLO en grupo activo
-const users = await getUsers(activeRole)
+const found = await findUserFlexible(interaction.user.id, activeRole)
 
-const userData = users[interaction.user.id]
-
-
-if (!userData) {
-  return interaction.editReply(
-    `❌ You are not registered in ${activeRole}`
-  )
+if (!found) {
+  return interaction.editReply("❌ You are not registered yet. Use /register first.")
 }
 
+const { userData, group } = found
 
 let okMain = true
 let okSec = true
 
-
 if (userData.main_id) {
-
-  okMain = await setOnlineStatus(
-    "offline",
-    userData.main_id,
-    activeRole
-  )
-
+  okMain = await setOnlineStatus("offline", userData.main_id, group)
 }
-
 
 if (userData.sec_id) {
-
-  okSec = await setOnlineStatus(
-    "offline",
-    userData.sec_id,
-    activeRole
-  )
-
+  okSec = await setOnlineStatus("offline", userData.sec_id, group)
 }
-
 
 if (!okMain || !okSec) {
-  return interaction.editReply(
-    "❌ Some IDs could not be updated."
-  )
+  return interaction.editReply("❌ Some IDs could not be updated.")
 }
 
-
 return interaction.editReply(
-  `🔴 ${userData.name} is now OFFLINE in **${activeRole}**`
+  `🔴 ${userData.name} is now OFFLINE in **${group}**`
 )
 
 }
@@ -3037,7 +3066,7 @@ if (interaction.isStringSelectMenu() && interaction.customId === "select_offline
 
   const row = new ActionRowBuilder().addComponents(confirm);
 
-  await interaction.update({
+   return interaction.update({
     content: `⚠️ Confirm OFFLINE for ID: ${id}\n📂 Group: ${group}`,
     components: [row]
   });
