@@ -844,14 +844,7 @@ async function registerRivalDuoMember({
   gameId = String(gameId || "").trim()
   duoId = duoId ? String(duoId) : null
 
-  const existing = await getRivalDuoByUser(discordId)
 
-if (existing) {
-  return {
-    ok: false,
-    message: "❌ You are already registered in a Rival Duo."
-  }
-}
 
   if (!isValidGameId(gameId)) {
     return {
@@ -1341,7 +1334,7 @@ async function setRivalDuoOnline(discordId) {
       `Select the group where both members want to reroll.`
   }
 }
-async function selectRivalDuoGroup(discordId, selectedGroup) {
+async function selectRivalDuoGroup(discordId, selectedGroup, duoId) {
   discordId = String(discordId)
 
   if (!["Elite_Four", "Gym_Leader"].includes(selectedGroup)) {
@@ -1351,7 +1344,7 @@ async function selectRivalDuoGroup(discordId, selectedGroup) {
     }
   }
 
-  const duo = await getRivalDuoByUser(discordId)
+  const duo = await getRivalDuoById(duoId)
 
   if (!duo) {
     return {
@@ -2092,10 +2085,11 @@ if (
     })
   }
 
-  const result = await selectRivalDuoGroup(
-    discordId,
-    selectedGroup
-  )
+const result = await selectRivalDuoGroup(
+  discordId,
+  selectedGroup,
+  duoId
+)
 
   if (!result.ok) {
     return interaction.update({
